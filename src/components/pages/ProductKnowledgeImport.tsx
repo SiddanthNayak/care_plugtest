@@ -12,11 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import {
-  ResourceCategoryRead,
-  ResourceCategoryResourceType,
-  ResourceCategorySubType,
-} from "@/types/base/resourceCategory/resourceCategory";
+import { ResourceCategoryResourceType } from "@/types/base/resourceCategory/resourceCategory";
 import {
   ProductKnowledgeBase,
   ProductKnowledgeCreate,
@@ -25,6 +21,7 @@ import {
   ProductNameTypes,
 } from "@/types/inventory/productKnowledge/productKnowledge";
 import { parseCsvText } from "@/utils/csv";
+import { upsertResourceCategories } from "@/utils/resourceCategory";
 import { createSlug } from "@/utils/slug";
 
 interface ProductKnowledgeImportProps {
@@ -90,6 +87,8 @@ const parseCsvList = (value?: string) =>
         .map((entry) => entry.trim())
         .filter(Boolean)
     : [];
+
+const normalizeName = (value: string) => value.trim().toLowerCase();
 
 interface ProcessedRow {
   rowIndex: number;
@@ -221,7 +220,12 @@ Medicines,,Paracetamol,medication,Paracetamol,12345,tablet,Tablet,123456,123456,
       ...new Set(validRows.map((row) => row.normalized!.resourceCategory)),
     ];
 
-    await upsertResourceCategories(facilityId, resourceCategories);
+    const categorySlugMap = await upsertResourceCategories({
+      facilityId,
+      categories: resourceCategories,
+      resourceType: ResourceCategoryResourceType.product_knowledge,
+      slugPrefix: "pk",
+    });
 
     const existingSlugs = await getExistingProductKnowledgeSlugs(facilityId);
 
@@ -240,6 +244,9 @@ Medicines,,Paracetamol,medication,Paracetamol,12345,tablet,Tablet,123456,123456,
         continue;
       }
 
+      const categorySlug =
+        categorySlugMap.get(normalizeName(datapoint.resourceCategory)) ||
+        `f-${facilityId}-pk-${await createSlug(datapoint.resourceCategory)}`;
       const productKnowledge: ProductKnowledgeCreate = {
         slug_value: datapoint.slug,
         name: datapoint.name,
@@ -247,7 +254,7 @@ Medicines,,Paracetamol,medication,Paracetamol,12345,tablet,Tablet,123456,123456,
         product_type: datapoint.productType,
         status: ProductKnowledgeStatus.active,
         base_unit: datapoint.baseUnit,
-        category: `f-${facilityId}-pk-${await createSlug(datapoint.resourceCategory)}`,
+        category: categorySlug,
         names: [],
         storage_guidelines: [],
         is_instance_level: false,
@@ -624,54 +631,6 @@ async function resolveDatapoint(
   return { ...datapoint, slug } as Omit<typeof datapoint, "slugPromise"> & {
     slug: string;
   };
-}
-
-async function upsertResourceCategories(
-  facilityId: string,
-  resourceCategories: string[],
-) {
-  const existingCategories = (await request(
-    `/api/v1/facility/${facilityId}/resource_category/?limit=100&resource_type=${ResourceCategoryResourceType.product_knowledge}&resource_sub_type=${ResourceCategorySubType.other}`,
-    { method: "GET" },
-  )) as { results: ResourceCategoryRead[] };
-
-  const existingSlugs = new Set(
-    existingCategories.results.map((cat) => cat.slug_config.slug_value),
-  );
-  const categoryEntries = await Promise.all(
-    resourceCategories.map(async (category) => ({
-      category,
-      slug: await createSlug(category),
-    })),
-  );
-  const categorySlugMap = new Map(
-    categoryEntries.map(({ category, slug }) => [category, slug]),
-  );
-  const newDatapoints = categoryEntries
-    .filter(({ slug }) => !existingSlugs.has(`pk-${slug}`))
-    .map(({ category }) => category);
-
-  if (newDatapoints.length === 0) {
-    return;
-  }
-
-  await request(`/api/v1/facility/${facilityId}/resource_category/upsert/`, {
-    method: "POST",
-    body: JSON.stringify({
-      datapoints: newDatapoints.map((data) => {
-        const slug = categorySlugMap.get(data);
-        if (!slug) {
-          throw new Error(`Missing slug for category: ${data}`);
-        }
-        return {
-          title: data,
-          slug_value: `pk-${slug}`,
-          resource_type: ResourceCategoryResourceType.product_knowledge,
-          resource_sub_type: ResourceCategorySubType.other,
-        };
-      }),
-    }),
-  });
 }
 
 async function getExistingProductKnowledgeSlugs(facilityId: string) {

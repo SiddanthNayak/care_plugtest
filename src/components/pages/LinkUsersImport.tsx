@@ -1,12 +1,10 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { AlertCircle, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { queryString, request } from "@/apis/request";
-import DepartmentSelect, {
-  FacilityOrganizationRead,
-} from "@/components/Pickers/DepartmentSelect";
-import RoleSelect, { RoleRead } from "@/components/Pickers/RoleSelect";
+import type { FacilityOrganizationRead } from "@/components/Pickers/DepartmentSelect";
+import type { RoleRead } from "@/components/Pickers/RoleSelect";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +35,8 @@ interface LinkUserRow {
   rowIndex: number;
   username?: string;
   resolvedUserId?: string;
+  pairs: LinkUserPair[];
+  validationErrors: string[];
   status:
     | "pending"
     | "ready"
@@ -49,12 +49,24 @@ interface LinkUserRow {
   message?: string;
 }
 
+interface LinkUserPair {
+  roleName: string;
+  departmentName: string;
+  roleId?: string;
+  departmentId?: string;
+}
+
 const normalizeHeader = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const buildHeaderMap = (headers: string[]) => {
-  const headerMap: Record<"username", number | undefined> = {
+  const headerMap: Record<
+    "username" | "role" | "department",
+    number | undefined
+  > = {
     username: undefined,
+    role: undefined,
+    department: undefined,
   };
 
   headers.forEach((header, index) => {
@@ -62,10 +74,28 @@ const buildHeaderMap = (headers: string[]) => {
     if (normalized === "username" || normalized === "user_name") {
       headerMap.username = index;
     }
+    if (normalized === "role" || normalized === "roles") {
+      headerMap.role = index;
+    }
+    if (
+      normalized === "department" ||
+      normalized === "departments" ||
+      normalized === "dept"
+    ) {
+      headerMap.department = index;
+    }
   });
 
   return headerMap;
 };
+
+const normalizeName = (value: string) => value.trim().toLowerCase();
+
+const splitCellValues = (value?: string) =>
+  (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 
 export default function LinkUsersImport({ facilityId }: LinkUsersImportProps) {
   const [currentStep, setCurrentStep] = useState<
@@ -74,14 +104,15 @@ export default function LinkUsersImport({ facilityId }: LinkUsersImportProps) {
   const [uploadError, setUploadError] = useState<string>("");
   const [rows, setRows] = useState<LinkUserRow[]>([]);
   const [resolveProgress, setResolveProgress] = useState(0);
-  const [roles, setRoles] = useState<RoleRead[]>([]);
-  const [roleQuery, setRoleQuery] = useState("");
-  const [selectedRoleId, setSelectedRoleId] = useState<string>("");
-  const [organizations, setOrganizations] = useState<
-    FacilityOrganizationRead[]
-  >([]);
-  const [selectedOrg, setSelectedOrg] =
-    useState<FacilityOrganizationRead | null>(null);
+  const [roleMap, setRoleMap] = useState<Record<string, string>>({});
+  const [departmentMap, setDepartmentMap] = useState<Record<string, string>>(
+    {},
+  );
+  const [mappingStatus, setMappingStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [mappingIssues, setMappingIssues] = useState<string[]>([]);
+  const [lastMappingSignature, setLastMappingSignature] = useState<string>("");
   const [importProgress, setImportProgress] = useState(0);
   const [importTotal, setImportTotal] = useState(0);
   const [importProcessed, setImportProcessed] = useState(0);
@@ -100,32 +131,156 @@ export default function LinkUsersImport({ facilityId }: LinkUsersImportProps) {
     [rows],
   );
 
-  const organizationsQuery = useQuery({
-    queryKey: ["facility-organizations", facilityId],
-    queryFn: () =>
-      request<PaginatedResponse<FacilityOrganizationRead>>(
+  const uniqueRoleNames = useMemo(() => {
+    const unique = new Set<string>();
+    rows.forEach((row) => {
+      row.pairs.forEach((pair) => {
+        if (pair.roleName) unique.add(pair.roleName.trim());
+      });
+    });
+    return Array.from(unique).sort();
+  }, [rows]);
+
+  const uniqueDepartmentNames = useMemo(() => {
+    const unique = new Set<string>();
+    rows.forEach((row) => {
+      row.pairs.forEach((pair) => {
+        if (pair.departmentName) unique.add(pair.departmentName.trim());
+      });
+    });
+    return Array.from(unique).sort();
+  }, [rows]);
+
+  const mappingSignature = useMemo(
+    () => `${uniqueRoleNames.join("|")}::${uniqueDepartmentNames.join("|")}`,
+    [uniqueRoleNames, uniqueDepartmentNames],
+  );
+
+  const resolveMappings = useCallback(async () => {
+    if (!facilityId) return;
+    if (!uniqueRoleNames.length && !uniqueDepartmentNames.length) {
+      setMappingIssues(["No roles or departments found in CSV."]);
+      setMappingStatus("error");
+      return;
+    }
+
+    setMappingStatus("loading");
+    setMappingIssues([]);
+
+    const issues: string[] = [];
+    const nextRoleMap: Record<string, string> = {};
+    const nextDepartmentMap: Record<string, string> = {};
+
+    try {
+      await Promise.all(
+        uniqueRoleNames.map(async (roleName) => {
+          const response = await request<PaginatedResponse<RoleRead>>(
+            `/api/v1/role/${queryString({
+              limit: 10,
+              offset: 0,
+              name: roleName,
+            })}`,
+            { method: "GET" },
+          );
+          const key = normalizeName(roleName);
+          const match = response.results.find(
+            (role) => normalizeName(role.name) === key,
+          );
+
+          if (match) {
+            nextRoleMap[key] = match.id;
+          } else {
+            issues.push(`Role not found: ${roleName}`);
+          }
+        }),
+      );
+
+      const organizationsResponse = await request<
+        PaginatedResponse<FacilityOrganizationRead>
+      >(
         `/api/v1/facility/${facilityId}/organizations/${queryString({ limit: 500 })}`,
         { method: "GET" },
-      ),
-    enabled: Boolean(facilityId),
-  });
+      );
 
-  const rolesQuery = useQuery({
-    queryKey: ["roles", roleQuery],
-    queryFn: () =>
-      request<PaginatedResponse<RoleRead>>(
-        `/api/v1/role/${queryString({ limit: 10, offset: 0, name: roleQuery })}`,
-        { method: "GET" },
-      ),
-  });
+      const organizationLookup = new Map<string, string>();
+      organizationsResponse.results.forEach((organization) => {
+        const key = normalizeName(organization.name);
+        if (!organizationLookup.has(key)) {
+          organizationLookup.set(key, organization.id);
+        }
+      });
+
+      uniqueDepartmentNames.forEach((departmentName) => {
+        const key = normalizeName(departmentName);
+        const match = organizationLookup.get(key);
+        if (match) {
+          nextDepartmentMap[key] = match;
+        } else {
+          issues.push(`Department not found: ${departmentName}`);
+        }
+      });
+    } catch (error) {
+      issues.push("Failed to load roles or departments.");
+    }
+
+    setRoleMap(nextRoleMap);
+    setDepartmentMap(nextDepartmentMap);
+    setMappingIssues(issues);
+    setMappingStatus(issues.length ? "error" : "ready");
+    setLastMappingSignature(mappingSignature);
+
+    setRows((prevRows) =>
+      prevRows.map((row) => {
+        const baseErrors = row.validationErrors.filter(
+          (error) =>
+            !error.startsWith("Unknown role:") &&
+            !error.startsWith("Unknown department:"),
+        );
+        const errorSet = new Set(baseErrors);
+        const pairs = row.pairs.map((pair) => {
+          const roleId = nextRoleMap[normalizeName(pair.roleName)];
+          const departmentId =
+            nextDepartmentMap[normalizeName(pair.departmentName)];
+
+          if (!roleId) {
+            errorSet.add(`Unknown role: ${pair.roleName}`);
+          }
+          if (!departmentId) {
+            errorSet.add(`Unknown department: ${pair.departmentName}`);
+          }
+
+          return {
+            ...pair,
+            roleId,
+            departmentId,
+          };
+        });
+
+        return {
+          ...row,
+          pairs,
+          validationErrors: Array.from(errorSet),
+        };
+      }),
+    );
+  }, [facilityId, uniqueDepartmentNames, uniqueRoleNames]);
 
   useEffect(() => {
-    setOrganizations(organizationsQuery.data?.results ?? []);
-  }, [organizationsQuery.data]);
+    if (currentStep !== "review") return;
+    if (!facilityId) return;
+    if (!mappingSignature) return;
+    if (mappingStatus === "loading") return;
+    if (mappingSignature === lastMappingSignature) return;
 
-  useEffect(() => {
-    setRoles(rolesQuery.data?.results ?? []);
-  }, [rolesQuery.data]);
+    resolveMappings();
+  }, [
+    currentStep,
+    facilityId,
+    mappingSignature,
+    mappingStatus,
+    lastMappingSignature,
+    resolveMappings,
+  ]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -148,8 +303,12 @@ export default function LinkUsersImport({ facilityId }: LinkUsersImportProps) {
         }
 
         const headerMap = buildHeaderMap(headers);
-        if (headerMap.username === undefined) {
-          setUploadError("CSV must include: username");
+        if (
+          headerMap.username === undefined ||
+          headerMap.role === undefined ||
+          headerMap.department === undefined
+        ) {
+          setUploadError("CSV must include: username, role, department");
           return;
         }
 
@@ -158,14 +317,65 @@ export default function LinkUsersImport({ facilityId }: LinkUsersImportProps) {
             headerMap.username !== undefined
               ? row[headerMap.username]?.trim()
               : "";
+          const roleCell =
+            headerMap.role !== undefined ? row[headerMap.role]?.trim() : "";
+          const departmentCell =
+            headerMap.department !== undefined
+              ? row[headerMap.department]?.trim()
+              : "";
+
+          const roleNames = splitCellValues(roleCell);
+          const departmentNames = splitCellValues(departmentCell);
+          const validationErrors: string[] = [];
+
+          if (!roleNames.length) {
+            validationErrors.push("Missing role");
+          }
+
+          if (!departmentNames.length) {
+            validationErrors.push("Missing department");
+          }
+
+          if (roleNames.length && departmentNames.length) {
+            if (roleNames.length !== departmentNames.length) {
+              validationErrors.push("Role and department counts do not match");
+            }
+
+            const seenDepartments = new Set<string>();
+            departmentNames.forEach((departmentName) => {
+              const key = normalizeName(departmentName);
+              if (seenDepartments.has(key)) {
+                validationErrors.push(
+                  `Duplicate department in row: ${departmentName}`,
+                );
+              }
+              seenDepartments.add(key);
+            });
+          }
+
+          const pairs: LinkUserPair[] =
+            roleNames.length === departmentNames.length
+              ? roleNames.map((roleName, pairIndex) => ({
+                  roleName,
+                  departmentName: departmentNames[pairIndex] ?? "",
+                }))
+              : [];
+
           return {
             rowIndex: index + 2,
             username: username || undefined,
+            pairs,
+            validationErrors,
             status: "pending",
           };
         });
 
         setUploadError("");
+        setRoleMap({});
+        setDepartmentMap({});
+        setMappingIssues([]);
+        setMappingStatus("idle");
+        setLastMappingSignature("");
         setRows(parsedRows);
         setCurrentStep("review");
       } catch (error) {
@@ -186,12 +396,19 @@ export default function LinkUsersImport({ facilityId }: LinkUsersImportProps) {
         let updatedRow: LinkUserRow = { ...row };
 
         const hasUsername = Boolean(row.username);
+        const hasRowErrors = row.validationErrors.length > 0;
 
         if (!hasUsername) {
           updatedRow = {
             ...updatedRow,
             status: "invalid",
             message: "Missing username",
+          };
+        } else if (hasRowErrors) {
+          updatedRow = {
+            ...updatedRow,
+            status: "invalid",
+            message: row.validationErrors.join("; "),
           };
         } else if (row.username) {
           try {
@@ -252,7 +469,7 @@ export default function LinkUsersImport({ facilityId }: LinkUsersImportProps) {
 
   const linkUsersMutation = useMutation({
     mutationFn: async (inputRows: LinkUserRow[]) => {
-      if (!facilityId || !selectedOrg || !selectedRoleId) {
+      if (!facilityId) {
         return inputRows;
       }
 
@@ -271,17 +488,52 @@ export default function LinkUsersImport({ facilityId }: LinkUsersImportProps) {
           continue;
         }
 
+        if (row.validationErrors.length > 0) {
+          updatedRows.push({
+            ...row,
+            status: "invalid",
+            message: row.validationErrors.join("; "),
+          });
+          continue;
+        }
+
         try {
-          await request(
-            `/api/v1/facility/${facilityId}/organizations/${selectedOrg.id}/users/`,
-            {
-              method: "POST",
-              body: JSON.stringify({
-                user: row.resolvedUserId,
-                role: selectedRoleId,
-              }),
-            },
-          );
+          const rowIssues: string[] = [];
+
+          for (const pair of row.pairs) {
+            const resolvedRoleId =
+              pair.roleId ?? roleMap[normalizeName(pair.roleName)];
+            const resolvedDepartmentId =
+              pair.departmentId ??
+              departmentMap[normalizeName(pair.departmentName)];
+
+            if (!resolvedDepartmentId || !resolvedRoleId) {
+              rowIssues.push(
+                `Missing mapping for ${pair.roleName} / ${pair.departmentName}`,
+              );
+              continue;
+            }
+
+            await request(
+              `/api/v1/facility/${facilityId}/organizations/${resolvedDepartmentId}/users/`,
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  user: row.resolvedUserId,
+                  role: resolvedRoleId,
+                }),
+              },
+            );
+          }
+
+          if (rowIssues.length > 0) {
+            updatedRows.push({
+              ...row,
+              status: "failed",
+              message: rowIssues.join("; "),
+            });
+            continue;
+          }
 
           updatedRows.push({
             ...row,
@@ -325,15 +577,15 @@ export default function LinkUsersImport({ facilityId }: LinkUsersImportProps) {
   });
 
   const runImport = useCallback(() => {
-    if (!facilityId || !selectedOrg || !selectedRoleId) return;
+    if (!facilityId) return;
     setCurrentStep("importing");
     linkUsersMutation.mutate(rows);
-  }, [facilityId, selectedOrg, selectedRoleId, linkUsersMutation, rows]);
+  }, [facilityId, linkUsersMutation, rows]);
 
   const downloadSample = () => {
-    const sampleCSV = `username
-johndon_dhm
-bob_ssmm`;
+    const sampleCSV = `username,role,department
+abhilash-thtn,"Doctor-KA, Technician-KA","Surgery, Dental"
+john_doe,Doctor-KA,Surgery`;
     const blob = new Blob([sampleCSV], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -345,9 +597,9 @@ bob_ssmm`;
 
   const canImport =
     Boolean(facilityId) &&
-    Boolean(selectedOrg) &&
-    Boolean(selectedRoleId) &&
     readyCount > 0 &&
+    mappingStatus === "ready" &&
+    mappingIssues.length === 0 &&
     !resolveUsersMutation.isPending &&
     !linkUsersMutation.isPending;
 
@@ -361,41 +613,10 @@ bob_ssmm`;
               Link Users to Department
             </CardTitle>
             <CardDescription>
-              Select a department and role, then upload a CSV with username.
+              Upload a CSV with username, role, and department columns.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Department / Sub-Department
-                </label>
-                <DepartmentSelect
-                  organizations={organizations}
-                  value={selectedOrg}
-                  onChange={setSelectedOrg}
-                  isLoading={organizationsQuery.isLoading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Role
-                </label>
-                <RoleSelect
-                  roles={roles}
-                  value={selectedRoleId}
-                  onChange={setSelectedRoleId}
-                  searchQuery={roleQuery}
-                  onSearchChange={setRoleQuery}
-                  isLoading={rolesQuery.isLoading}
-                />
-                <div className="text-xs text-gray-500">
-                  Roles are global and reused across facilities.
-                </div>
-              </div>
-            </div>
-
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
               <input
                 type="file"
@@ -412,7 +633,7 @@ bob_ssmm`;
                     <p className="text-sm text-gray-500">or drag and drop</p>
                   </div>
                   <p className="text-xs text-gray-400">
-                    Expected columns: username
+                    Expected columns: username, role, department
                   </p>
                   <Button variant="outline" size="sm" onClick={downloadSample}>
                     Download Sample CSV
@@ -440,9 +661,10 @@ bob_ssmm`;
           <CardHeader>
             <CardTitle>Review Users</CardTitle>
             <CardDescription>
-              {selectedOrg?.name || "No department selected"} ·{" "}
-              {roles.find((role) => role.id === selectedRoleId)?.name ||
-                "No role selected"}
+              {uniqueDepartmentNames.length} departments (
+              {Object.keys(departmentMap).length} mapped) ·{" "}
+              {uniqueRoleNames.length} roles ({Object.keys(roleMap).length}{" "}
+              mapped)
             </CardDescription>
             {resolveUsersMutation.isPending && (
               <div className="mt-4">
@@ -454,6 +676,25 @@ bob_ssmm`;
             )}
           </CardHeader>
           <CardContent>
+            {(mappingStatus === "loading" || mappingIssues.length > 0) && (
+              <Alert
+                className="mb-4"
+                variant={mappingIssues.length > 0 ? "destructive" : "default"}
+              >
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  {mappingStatus === "loading" &&
+                    "Resolving roles and departments..."}
+                  {mappingIssues.length > 0 && (
+                    <div className="space-y-1">
+                      {mappingIssues.map((issue) => (
+                        <div key={issue}>{issue}</div>
+                      ))}
+                    </div>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
             <div className="border border-gray-200 rounded-lg overflow-hidden">
               <div className="max-h-80 overflow-auto">
                 <table className="min-w-full text-sm">
@@ -461,7 +702,7 @@ bob_ssmm`;
                     <tr>
                       <th className="px-3 py-2">Row</th>
                       <th className="px-3 py-2">Username</th>
-                      <th className="px-3 py-2">Resolved User ID</th>
+                      <th className="px-3 py-2">Role → Department</th>
                       <th className="px-3 py-2">Status</th>
                       <th className="px-3 py-2">Message</th>
                     </tr>
@@ -472,7 +713,14 @@ bob_ssmm`;
                         <td className="px-3 py-2">{row.rowIndex}</td>
                         <td className="px-3 py-2">{row.username ?? "-"}</td>
                         <td className="px-3 py-2">
-                          {row.resolvedUserId ?? "-"}
+                          {row.pairs.length > 0
+                            ? row.pairs
+                                .map(
+                                  (pair) =>
+                                    `${pair.roleName} → ${pair.departmentName}`,
+                                )
+                                .join("; ")
+                            : "-"}
                         </td>
                         <td className="px-3 py-2 capitalize">{row.status}</td>
                         <td className="px-3 py-2">{row.message ?? ""}</td>

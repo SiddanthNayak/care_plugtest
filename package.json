@@ -1,5 +1,5 @@
 {
-  "name": "care-plugtest",
+  "name": "care_import",
   "version": "1.0.0",
   "description": "",
   "main": "src/index.ts",

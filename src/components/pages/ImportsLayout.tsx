@@ -17,6 +17,10 @@ export type ImportTabId =
   | "locations"
   | "charge-item-definition"
   | "product-knowledge"
+  | "product"
+  | "observation-definition"
+  | "activity-definition"
+  | "valuesets"
   | "specimen-definitions";
 
 interface ImportsLayoutProps {
@@ -65,9 +69,29 @@ const getTabConfig = () => [
     path: "/admin/import/product-knowledge",
   },
   {
+    id: "product" as const,
+    label: "Product",
+    path: "/admin/import/product",
+  },
+  {
     id: "specimen-definitions" as const,
     label: "Specimen Definitions",
     path: "/admin/import/specimen-definitions",
+  },
+  {
+    id: "observation-definition" as const,
+    label: "Observation Definitions",
+    path: "/admin/import/observation-definition",
+  },
+  {
+    id: "activity-definition" as const,
+    label: "Activity Definitions",
+    path: "/admin/import/activity-definition",
+  },
+  {
+    id: "valuesets" as const,
+    label: "Value Sets",
+    path: "/admin/import/valuesets",
   },
 ];
 

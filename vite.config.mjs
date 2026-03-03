@@ -7,7 +7,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [
     federation({
-      name: "care_plugtest",
+      name: "care_import",
       filename: "remoteEntry.js",
       exposes: {
         "./manifest": "./src/manifest.ts",

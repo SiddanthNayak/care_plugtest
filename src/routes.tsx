@@ -1,14 +1,18 @@
 import { Redirect } from "raviger";
 import type { ReactNode } from "react";
 
+import ActivityDefinitionImport from "@/components/pages/ActivityDefinitionImport";
 import ChargeItemDefinitionImport from "@/components/pages/ChargeItemDefinitionImport";
 import DepartmentImport from "@/components/pages/DepartmentImport";
 import ImportsLayout, { ImportTabId } from "@/components/pages/ImportsLayout";
 import LinkUsersImport from "@/components/pages/LinkUsersImport";
 import LocationImport from "@/components/pages/LocationImport";
+import ObservationDefinitionImport from "@/components/pages/ObservationDefinitionImport";
+import ProductImport from "@/components/pages/ProductImport";
 import ProductKnowledgeImport from "@/components/pages/ProductKnowledgeImport";
 import SpecimenDefinitionImport from "@/components/pages/SpecimenDefinitionImport";
 import UsersImportPage from "@/components/pages/UsersImport";
+import ValueSetsImport from "@/components/pages/ValueSetsImport";
 
 const renderImportsPage = (activeTab: ImportTabId, content: ReactNode) => (
   <ImportsLayout activeTab={activeTab}>{content}</ImportsLayout>
@@ -27,6 +31,17 @@ const routes = {
     renderImportsPage("charge-item-definition", <ChargeItemDefinitionImport />),
   "/admin/import/product-knowledge": () =>
     renderImportsPage("product-knowledge", <ProductKnowledgeImport />),
+  "/admin/import/product": () =>
+    renderImportsPage("product", <ProductImport />),
+  "/admin/import/observation-definition": () =>
+    renderImportsPage(
+      "observation-definition",
+      <ObservationDefinitionImport />,
+    ),
+  "/admin/import/activity-definition": () =>
+    renderImportsPage("activity-definition", <ActivityDefinitionImport />),
+  "/admin/import/valuesets": () =>
+    renderImportsPage("valuesets", <ValueSetsImport />),
   "/admin/import/specimen-definitions": () =>
     renderImportsPage("specimen-definitions", <SpecimenDefinitionImport />),
 };
