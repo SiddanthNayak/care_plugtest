@@ -16,6 +16,7 @@ export interface ChargeItemDefinitionBase {
   price_components: MonetaryComponent[];
   category: string;
   can_edit_charge_item: boolean;
+  discount_configuration: any;
 }
 
 export interface ChargeItemDefinitionCreate extends Omit<

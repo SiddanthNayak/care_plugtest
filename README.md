@@ -11,7 +11,10 @@ A lightweight plug-in app used to test and demo CSV-based import flows with
 - **Charge item definitions import**
 - **Location import**
 - **Product knowledge import**
+- **Product import**
 - **Specimen definition import**
+- **Observtion definition import**
+- **Activity definition import**
 
 These screens live under `src/components/pages` and are wired via `src/routes.tsx`.
 
@@ -22,10 +25,3 @@ npm run start   # builds and serves preview on port 5273
 npm run build   # production build
 npm run preview # preview the build
 ```
-
-## Tech stack
-
-- Vite + React
-- Tailwind CSS
-- TanStack Query
-- shadcn/ui components

@@ -20,7 +20,7 @@ export type ImportTabId =
   | "product"
   | "observation-definition"
   | "activity-definition"
-  | "valuesets"
+  // | "valuesets"
   | "specimen-definitions";
 
 interface ImportsLayoutProps {
@@ -88,11 +88,11 @@ const getTabConfig = () => [
     label: "Activity Definitions",
     path: "/admin/import/activity-definition",
   },
-  {
-    id: "valuesets" as const,
-    label: "Value Sets",
-    path: "/admin/import/valuesets",
-  },
+  // {
+  //   id: "valuesets" as const,
+  //   label: "Value Sets",
+  //   path: "/admin/import/valuesets",
+  // },
 ];
 
 export default function ImportsLayout({

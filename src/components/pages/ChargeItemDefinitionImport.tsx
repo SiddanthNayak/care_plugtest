@@ -223,6 +223,7 @@ Bed Charges,Per day bed charge,Bed usage,1500`;
           description: row.data.description,
           purpose: row.data.purpose,
           can_edit_charge_item: true,
+          discount_configuration: null,
           price_components: [
             {
               monetary_component_type: "base",

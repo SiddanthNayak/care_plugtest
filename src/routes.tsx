@@ -12,7 +12,7 @@ import ProductImport from "@/components/pages/ProductImport";
 import ProductKnowledgeImport from "@/components/pages/ProductKnowledgeImport";
 import SpecimenDefinitionImport from "@/components/pages/SpecimenDefinitionImport";
 import UsersImportPage from "@/components/pages/UsersImport";
-import ValueSetsImport from "@/components/pages/ValueSetsImport";
+// import ValueSetsImport from "@/components/pages/ValueSetsImport";
 
 const renderImportsPage = (activeTab: ImportTabId, content: ReactNode) => (
   <ImportsLayout activeTab={activeTab}>{content}</ImportsLayout>
@@ -40,8 +40,8 @@ const routes = {
     ),
   "/admin/import/activity-definition": () =>
     renderImportsPage("activity-definition", <ActivityDefinitionImport />),
-  "/admin/import/valuesets": () =>
-    renderImportsPage("valuesets", <ValueSetsImport />),
+  // "/admin/import/valuesets": () =>
+  //   renderImportsPage("valuesets", <ValueSetsImport />),
   "/admin/import/specimen-definitions": () =>
     renderImportsPage("specimen-definitions", <SpecimenDefinitionImport />),
 };
