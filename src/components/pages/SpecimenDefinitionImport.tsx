@@ -46,9 +46,6 @@ const CODE_ERROR_PREFIX = "Invalid code:";
 const normalizeHeader = (header: string) =>
   header.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-const isNonEmptyString = (value: unknown) =>
-  typeof value === "string" && value.trim().length > 0;
-
 const parseBoolean = (value?: string) => {
   if (!value) return undefined;
   const normalized = value.trim().toLowerCase();
@@ -303,47 +300,6 @@ export default function SpecimenDefinitionImport({
             }
           }
 
-          const patientPreparationRaw = getCellValue(
-            row,
-            headerMap,
-            "patient_preparation",
-          ).trim();
-          const patientPreparation: CodeReference["code"][] = [];
-          if (patientPreparationRaw) {
-            try {
-              const parsed = JSON.parse(patientPreparationRaw);
-              if (!Array.isArray(parsed)) {
-                errors.push("patient_preparation must be a JSON array");
-              } else {
-                parsed.forEach((item, prepIndex) => {
-                  if (
-                    !item ||
-                    !isNonEmptyString(item.system) ||
-                    !isNonEmptyString(item.code) ||
-                    !isNonEmptyString(item.display)
-                  ) {
-                    errors.push(
-                      `patient_preparation ${prepIndex + 1} must include system, code, and display`,
-                    );
-                    return;
-                  }
-                  const codePayload = {
-                    system: item.system.trim(),
-                    code: item.code.trim(),
-                    display: item.display.trim(),
-                  };
-                  patientPreparation.push(codePayload);
-                  codeReferences.push({
-                    signature: buildCodeSignature(codePayload),
-                    label: `Patient preparation ${prepIndex + 1}`,
-                    code: codePayload,
-                  });
-                });
-              }
-            } catch {
-              errors.push("patient_preparation JSON could not be parsed");
-            }
-          }
 
           const collectionCode = buildOptionalCode(
             getCellValue(row, headerMap, "collection_system").trim(),
@@ -553,7 +509,7 @@ export default function SpecimenDefinitionImport({
               code: "",
               display: "",
             },
-            patient_preparation: patientPreparation,
+            patient_preparation: [],
             collection: collectionCode,
             is_derived: isDerived,
             preference: preferenceRaw ? preference : undefined,
@@ -594,7 +550,6 @@ export default function SpecimenDefinitionImport({
       "type_collected_system",
       "type_collected_code",
       "type_collected_display",
-      "patient_preparation",
       "collection_system",
       "collection_code",
       "collection_display",
@@ -622,14 +577,6 @@ export default function SpecimenDefinitionImport({
       "container_preparation",
     ];
 
-    const patientPreparationExample = JSON.stringify([
-      {
-        system: "http://snomed.info/sct",
-        code: "47501000087100",
-        display: "Fractionated dose",
-      },
-    ]);
-
     const rows = [
       [
         "Blood",
@@ -639,7 +586,6 @@ export default function SpecimenDefinitionImport({
         "http://terminology.hl7.org/CodeSystem/v2-0487",
         "ACNFLD",
         "Fluid, Acne",
-        patientPreparationExample,
         "http://snomed.info/sct",
         "278450005",
         "Finger stick",
@@ -770,7 +716,7 @@ export default function SpecimenDefinitionImport({
           description: row.data.description,
           derived_from_uri: row.data.derived_from_uri || undefined,
           type_collected: row.data.type_collected,
-          patient_preparation: row.data.patient_preparation || [],
+          patient_preparation: [],
           collection: row.data.collection || undefined,
           type_tested: typeTested,
         };
