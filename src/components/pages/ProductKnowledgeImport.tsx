@@ -180,7 +180,7 @@ export default function ProductKnowledgeImport({
 
   const downloadSample = () => {
     const sampleCSV = `resourceCategory,slug,name,productType,codeDisplay,codeValue,baseUnitDisplay,dosageFormDisplay,dosageFormCode,routeCode,routeDisplay,alternateIdentifier,alternateNameType,alternateNameValue
-Medicines,,Paracetamol,medication,Paracetamol,12345,tablet,Tablet,123456,123456,Oral,,,`;
+Medication,,Isoflurane inhaler,Medication,Product containing precisely isoflurane 999 milligram/1 milliliter conventional release solution for inhalation,784978007,milligram per milliliter, solution for inhalation,420641004,447694001,Respiratory tract route,,,`;
     const blob = new Blob([sampleCSV], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
