@@ -22,9 +22,10 @@ export interface HealthcareServiceOption {
 export const stripMappingErrors = (errors: string[]) =>
   errors.filter(
     (error) =>
-      !error.startsWith("Specimen not found:") &&
-      !error.startsWith("Observation not found:") &&
-      !error.startsWith("Charge item not found") &&
+      !error.startsWith("Specimen slug not found:") &&
+      !error.startsWith("Observation slug not found:") &&
+      !error.startsWith("Charge item slug not found:") &&
+      !error.startsWith("Charge item not found for activity definition:") &&
       !error.startsWith("Location not found:") &&
       !error.startsWith("Healthcare service not found:"),
   );
@@ -44,9 +45,9 @@ export const downloadSampleCsv = () => {
     "diagnostic_report_system",
     "diagnostic_report_code",
     "diagnostic_report_display",
-    "specimen_names",
-    "observation_names",
-    "charge_item_names",
+    "specimen_slugs",
+    "observation_slugs",
+    "charge_item_slugs",
     "location_names",
     "healthcare_service_name",
     "derived_from_uri",
@@ -58,7 +59,7 @@ export const downloadSampleCsv = () => {
   const rows = [
     [
       "Complete Blood Count",
-      "",
+      "complete-blood-count",
       "Complete blood count test",
       "Order CBC for baseline evaluation",
       "active",
@@ -70,9 +71,9 @@ export const downloadSampleCsv = () => {
       "http://loinc.org",
       "718-7",
       "Hemoglobin [Mass/volume] in Blood",
-      "Whole Blood",
-      "Hemoglobin, Platelet Count",
-      "CBC Charge Item",
+      "whole-blood",
+      "hemoglobin, platelet-count",
+      "cbc-charge-item",
       "Main Lab",
       "General Medicine",
       "",

@@ -17,7 +17,6 @@ import {
   parseObservationDefinitionCsv,
   type ObservationProcessedRow,
 } from "@/utils/masterImport/observationDefinition";
-import { createSlug } from "@/utils/slug";
 
 interface ObservationDefinitionMasterImportProps {
   facilityId?: string;
@@ -104,7 +103,7 @@ export default function ObservationDefinitionMasterImport({
 
     for (const row of validRows) {
       try {
-        const slug = await createSlug(row.data.title, 25);
+        const slug = row.data.slug_value;
         const payload = {
           slug_value: slug,
           title: row.data.title,

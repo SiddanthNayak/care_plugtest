@@ -5,7 +5,6 @@ import {
   ProductNameTypes,
 } from "@/types/inventory/productKnowledge/productKnowledge";
 import { parseCsvText } from "@/utils/csv";
-import { createSlug } from "@/utils/slug";
 
 const HEADER_MAP = {
   resourceCategory: 0,
@@ -87,6 +86,7 @@ export const parseProductKnowledgeCsv = (
   csvText: string,
 ): ProductKnowledgeProcessedRow[] => {
   const { rows } = parseCsvText(csvText);
+  const slugSeen = new Map<string, number>();
 
   return rows.map((row, index) => {
     const datapoint = (
@@ -96,6 +96,26 @@ export const parseProductKnowledgeCsv = (
       acc[key] = row[idx] ?? "";
       return acc;
     }, {} as ProductKnowledgeCsvRow);
+
+    const slugVal = datapoint.slug?.trim();
+    if (!slugVal) {
+      return {
+        rowIndex: index + 2,
+        raw: datapoint,
+        errors: ["Missing slug"],
+        normalized: null,
+      };
+    }
+    const prevRow = slugSeen.get(slugVal);
+    if (prevRow !== undefined) {
+      return {
+        rowIndex: index + 2,
+        raw: datapoint,
+        errors: [`Duplicate slug "${slugVal}" (first seen in row ${prevRow})`],
+        normalized: null,
+      };
+    }
+    slugSeen.set(slugVal, index + 2);
 
     try {
       const normalized = validateProductKnowledgeDatapoint(datapoint);
@@ -134,7 +154,7 @@ export function validateProductKnowledgeDatapoint(
 
   const slugPromise = datapoint.slug
     ? Promise.resolve(datapoint.slug)
-    : createProductKnowledgeSlug(datapoint.name);
+    : Promise.reject(new Error("Missing slug"));
 
   const productType = [
     ProductKnowledgeType.consumable,
@@ -207,10 +227,6 @@ export function validateProductKnowledgeDatapoint(
     intendedRoutes,
     code,
   };
-}
-
-export async function createProductKnowledgeSlug(name: string) {
-  return await createSlug(name);
 }
 
 export async function resolveProductKnowledgeDatapoint(

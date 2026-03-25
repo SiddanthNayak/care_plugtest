@@ -28,10 +28,17 @@ interface ChargeItemImportProps {
   facilityId?: string;
 }
 
-const REQUIRED_HEADERS = ["title", "description", "purpose", "price"] as const;
+const REQUIRED_HEADERS = [
+  "title",
+  "slug_value",
+  "description",
+  "purpose",
+  "price",
+] as const;
 
 type ChargeItemRow = {
   title: string;
+  slug_value: string;
   description: string;
   purpose: string;
   price: string;
@@ -111,9 +118,12 @@ export default function ChargeItemDefinitionImport({
           return;
         }
 
+        const slugSeen = new Map<string, number>();
+
         const processed = rows.map((row, index) => {
           const data: ChargeItemRow = {
             title: row[headerMap.title] ?? "",
+            slug_value: row[headerMap.slugvalue] ?? "",
             description: row[headerMap.description] ?? "",
             purpose: row[headerMap.purpose] ?? "",
             price: row[headerMap.price] ?? "",
@@ -121,6 +131,19 @@ export default function ChargeItemDefinitionImport({
 
           const errors: string[] = [];
           if (!data.title.trim()) errors.push("Missing title");
+          const slugVal = data.slug_value.trim();
+          if (!slugVal) {
+            errors.push("Missing slug_value");
+          } else {
+            const prevRow = slugSeen.get(slugVal);
+            if (prevRow !== undefined) {
+              errors.push(
+                `Duplicate slug_value "${slugVal}" (first seen in row ${prevRow})`,
+              );
+            } else {
+              slugSeen.set(slugVal, index + 2);
+            }
+          }
           if (!data.price.trim()) errors.push("Missing price");
 
           return {
@@ -141,9 +164,9 @@ export default function ChargeItemDefinitionImport({
   };
 
   const downloadSample = () => {
-    const sampleCSV = `title,description,purpose,price
-Consultation Fee,Doctor consultation fee,Consultation charge,250
-Bed Charges,Per day bed charge,Bed usage,1500`;
+    const sampleCSV = `title,slug_value,description,purpose,price
+Consultation Fee,consultation-fee,Doctor consultation fee,Consultation charge,250
+Bed Charges,bed-charges,Per day bed charge,Bed usage,1500`;
     const blob = new Blob([sampleCSV], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -213,7 +236,7 @@ Bed Charges,Per day bed charge,Bed usage,1500`;
 
     for (const row of validRows) {
       try {
-        const slug = await createSlug(row.data.title);
+        const slug = row.data.slug_value.trim();
 
         const payload: ChargeItemDefinitionCreate = {
           title: row.data.title,

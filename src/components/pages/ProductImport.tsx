@@ -26,7 +26,6 @@ import {
 } from "@/types/inventory/productKnowledge/productKnowledge";
 import { parseCsvText } from "@/utils/csv";
 import { upsertResourceCategories } from "@/utils/resourceCategory";
-import { createSlug } from "@/utils/slug";
 
 interface ProductImportProps {
   facilityId?: string;
@@ -44,6 +43,8 @@ interface ProductRow {
   expiration_date?: string;
   product_knowledge_name?: string;
   charge_item_definition_name?: string;
+  product_knowledge_slug?: string;
+  charge_item_definition_slug?: string;
 }
 
 interface ResolvedRow {
@@ -442,6 +443,15 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
               headerMap,
               "charge_item_definition_name",
             ).trim(),
+            product_knowledge_slug:
+              getCellValue(row, headerMap, "product_knowledge_slug").trim() ||
+              undefined,
+            charge_item_definition_slug:
+              getCellValue(
+                row,
+                headerMap,
+                "charge_item_definition_slug",
+              ).trim() || undefined,
           };
 
           return {
@@ -478,6 +488,8 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
       "expiration_date",
       "product_knowledge_name",
       "charge_item_definition_name",
+      "product_knowledge_slug",
+      "charge_item_definition_slug",
     ];
 
     const rows = [
@@ -491,6 +503,8 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
         "2027-12-31",
         "Paracetamol",
         "Paracetamol Charge",
+        "paracetamol-pk",
+        "paracetamol-cid",
       ].map(csvEscape),
       [
         "Surgical Gloves",
@@ -501,6 +515,8 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
         "",
         "",
         "Surgical Gloves",
+        "",
+        "surgical-gloves-pk",
         "",
       ].map(csvEscape),
     ];
@@ -577,16 +593,16 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
 
     for (const row of validRows) {
       try {
-        const productKnowledgeName =
-          row.data.product_knowledge_name?.trim() || row.data.name;
-        const chargeItemName =
-          row.data.charge_item_definition_name?.trim() || row.data.name;
-
         let resolvedProductKnowledgeSlug = row.resolved?.productKnowledgeSlug;
         let resolvedChargeItemSlug = row.resolved?.chargeItemSlug;
 
         if (!row.resolved?.productKnowledgeExists) {
-          const slugValue = await createSlug(productKnowledgeName);
+          if (!row.data.product_knowledge_slug) {
+            throw new Error(
+              "Missing product_knowledge_slug for new product knowledge creation",
+            );
+          }
+          const slugValue = row.data.product_knowledge_slug;
           const categoryName =
             row.data.type === "medication" ? "Medicines" : "Consumables";
           const categorySlug = pkCategoryMap.get(normalizeName(categoryName));
@@ -639,7 +655,12 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
           !row.resolved?.chargeItemExists;
 
         if (shouldCreateCid) {
-          const slugValue = await createSlug(chargeItemName);
+          if (!row.data.charge_item_definition_slug) {
+            throw new Error(
+              "Missing charge_item_definition_slug for new charge item creation",
+            );
+          }
+          const slugValue = row.data.charge_item_definition_slug;
           const categoryName =
             row.data.type === "medication" ? "Medications" : "Consumables";
           const categorySlug = cidCategoryMap.get(normalizeName(categoryName));

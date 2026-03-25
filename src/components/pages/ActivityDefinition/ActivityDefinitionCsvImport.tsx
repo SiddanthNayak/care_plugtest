@@ -19,7 +19,6 @@ import {
 } from "@/utils/importHelpers";
 import { parseActivityDefinitionCsv } from "@/utils/masterImport/activityDefinition";
 import { upsertResourceCategories } from "@/utils/resourceCategory";
-import { createSlug } from "@/utils/slug";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -66,26 +65,26 @@ export default function ActivityDefinitionCsvImport({
     [processedRows],
   );
 
-  const uniqueSpecimenNames = useMemo(() => {
+  const uniqueSpecimenSlugs = useMemo(() => {
     const unique = new Set<string>();
     processedRows.forEach((row) => {
-      row.data.specimen_names.forEach((name) => unique.add(name.trim()));
+      row.data.specimen_slugs.forEach((slug) => unique.add(slug.trim()));
     });
     return Array.from(unique).sort();
   }, [processedRows]);
 
-  const uniqueObservationNames = useMemo(() => {
+  const uniqueObservationSlugs = useMemo(() => {
     const unique = new Set<string>();
     processedRows.forEach((row) => {
-      row.data.observation_names.forEach((name) => unique.add(name.trim()));
+      row.data.observation_slugs.forEach((slug) => unique.add(slug.trim()));
     });
     return Array.from(unique).sort();
   }, [processedRows]);
 
-  const uniqueChargeItemNames = useMemo(() => {
+  const uniqueChargeItemSlugs = useMemo(() => {
     const unique = new Set<string>();
     processedRows.forEach((row) => {
-      row.data.charge_item_names.forEach((name) => unique.add(name.trim()));
+      row.data.charge_item_slugs.forEach((slug) => unique.add(slug.trim()));
     });
     return Array.from(unique).sort();
   }, [processedRows]);
@@ -110,11 +109,11 @@ export default function ActivityDefinitionCsvImport({
 
   const mappingSignature = useMemo(
     () =>
-      `${uniqueSpecimenNames.join("|")}::${uniqueObservationNames.join("|")}::${uniqueChargeItemNames.join("|")}::${uniqueLocationNames.join("|")}::${uniqueHealthcareServiceNames.join("|")}`,
+      `${uniqueSpecimenSlugs.join("|")}::${uniqueObservationSlugs.join("|")}::${uniqueChargeItemSlugs.join("|")}::${uniqueLocationNames.join("|")}::${uniqueHealthcareServiceNames.join("|")}`,
     [
-      uniqueSpecimenNames,
-      uniqueObservationNames,
-      uniqueChargeItemNames,
+      uniqueSpecimenSlugs,
+      uniqueObservationSlugs,
+      uniqueChargeItemSlugs,
       uniqueLocationNames,
       uniqueHealthcareServiceNames,
     ],
@@ -130,78 +129,51 @@ export default function ActivityDefinitionCsvImport({
     setMappingStatus("loading");
 
     const issues: string[] = [];
-    const specimenMap: Record<string, string> = {};
-    const observationMap: Record<string, string> = {};
-    const chargeItemMap: Record<string, string> = {};
+    const validSpecimenSlugs = new Set<string>();
+    const validObservationSlugs = new Set<string>();
+    const validChargeItemSlugs = new Set<string>();
     const locationMap: Record<string, string> = {};
     const healthcareServiceMap: Record<string, string> = {};
 
     try {
       await Promise.all(
-        uniqueSpecimenNames.map(async (name) => {
-          const response = await request<
-            PaginatedResponse<{ title: string; slug: string }>
-          >(
-            `/api/v1/facility/${facilityId}/specimen_definition/${queryString({
-              title: name,
-              limit: 10,
-            })}`,
-            { method: "GET" },
-          );
-          const match = response.results.find(
-            (item) => normalizeName(item.title) === normalizeName(name),
-          );
-          if (match) {
-            specimenMap[normalizeName(name)] = match.slug;
-          } else {
-            issues.push(`Specimen not found: ${name}`);
+        uniqueSpecimenSlugs.map(async (slug) => {
+          try {
+            await request(
+              `/api/v1/facility/${facilityId}/specimen_definition/f-${facilityId}-${slug}/`,
+              { method: "GET" },
+            );
+            validSpecimenSlugs.add(slug);
+          } catch {
+            issues.push(`Specimen slug not found: ${slug}`);
           }
         }),
       );
 
       await Promise.all(
-        uniqueObservationNames.map(async (name) => {
-          const response = await request<
-            PaginatedResponse<{ title: string; slug: string }>
-          >(
-            `/api/v1/observation_definition/${queryString({
-              facility: facilityId,
-              title: name,
-              limit: 10,
-            })}`,
-            { method: "GET" },
-          );
-          const match = response.results.find(
-            (item) => normalizeName(item.title) === normalizeName(name),
-          );
-          if (match) {
-            observationMap[normalizeName(name)] = match.slug;
-          } else {
-            issues.push(`Observation not found: ${name}`);
+        uniqueObservationSlugs.map(async (slug) => {
+          try {
+            await request(
+              `/api/v1/observation_definition/f-${facilityId}-${slug}/`,
+              { method: "GET" },
+            );
+            validObservationSlugs.add(slug);
+          } catch {
+            issues.push(`Observation slug not found: ${slug}`);
           }
         }),
       );
 
       await Promise.all(
-        uniqueChargeItemNames.map(async (name) => {
-          const response = await request<
-            PaginatedResponse<{ title: string; slug: string }>
-          >(
-            `/api/v1/facility/${facilityId}/charge_item_definition/${queryString(
-              {
-                title: name,
-                limit: 10,
-              },
-            )}`,
-            { method: "GET" },
-          );
-          const match = response.results.find(
-            (item) => normalizeName(item.title) === normalizeName(name),
-          );
-          if (match) {
-            chargeItemMap[normalizeName(name)] = match.slug;
-          } else {
-            issues.push(`Charge item not found: ${name}`);
+        uniqueChargeItemSlugs.map(async (slug) => {
+          try {
+            await request(
+              `/api/v1/facility/${facilityId}/charge_item_definition/f-${facilityId}-${slug}/`,
+              { method: "GET" },
+            );
+            validChargeItemSlugs.add(slug);
+          } catch {
+            issues.push(`Charge item slug not found: ${slug}`);
           }
         }),
       );
@@ -266,31 +238,25 @@ export default function ActivityDefinitionCsvImport({
           locationIds: [],
         };
 
-        row.data.specimen_names.forEach((name) => {
-          const key = normalizeName(name);
-          const slug = specimenMap[key];
-          if (!slug) {
-            updatedErrors.push(`Specimen not found: ${name}`);
+        row.data.specimen_slugs.forEach((slug) => {
+          if (!validSpecimenSlugs.has(slug)) {
+            updatedErrors.push(`Specimen slug not found: ${slug}`);
           } else {
             resolved.specimenSlugs.push(slug);
           }
         });
 
-        row.data.observation_names.forEach((name) => {
-          const key = normalizeName(name);
-          const slug = observationMap[key];
-          if (!slug) {
-            updatedErrors.push(`Observation not found: ${name}`);
+        row.data.observation_slugs.forEach((slug) => {
+          if (!validObservationSlugs.has(slug)) {
+            updatedErrors.push(`Observation slug not found: ${slug}`);
           } else {
             resolved.observationSlugs.push(slug);
           }
         });
 
-        row.data.charge_item_names.forEach((name) => {
-          const key = normalizeName(name);
-          const slug = chargeItemMap[key];
-          if (!slug) {
-            updatedErrors.push(`Charge item not found: ${name}`);
+        row.data.charge_item_slugs.forEach((slug) => {
+          if (!validChargeItemSlugs.has(slug)) {
+            updatedErrors.push(`Charge item slug not found: ${slug}`);
           } else {
             resolved.chargeItemSlugs.push(slug);
           }
@@ -378,8 +344,7 @@ export default function ActivityDefinitionCsvImport({
 
     for (const row of rowsToImport) {
       try {
-        const rawSlug = row.data.slug_value?.trim();
-        const slug = rawSlug ? rawSlug : await createSlug(row.data.title, 25);
+        const slug = row.data.slug_value;
         const detailSlug = `f-${facilityId}-${slug}`;
         const categorySlug =
           categorySlugMap.get(normalizeName(row.data.category_name)) || "";
@@ -398,8 +363,8 @@ export default function ActivityDefinitionCsvImport({
           facility: facilityId,
           specimen_requirements: row.resolved?.specimenSlugs ?? [],
           observation_result_requirements: row.resolved?.observationSlugs ?? [],
-          charge_item_definitions: [],
-          locations: [],
+          charge_item_definitions: row.resolved?.chargeItemSlugs ?? [],
+          locations: row.resolved?.locationIds ?? [],
           category: categorySlug,
           healthcare_service: row.resolved?.healthcareServiceId ?? null,
         };

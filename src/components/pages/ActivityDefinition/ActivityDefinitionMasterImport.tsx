@@ -26,7 +26,6 @@ import {
 } from "@/utils/importHelpers";
 import { parseActivityDefinitionCsv } from "@/utils/masterImport/activityDefinition";
 import { upsertResourceCategories } from "@/utils/resourceCategory";
-import { createSlug } from "@/utils/slug";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -111,20 +110,22 @@ export default function ActivityDefinitionMasterImport({
     if (!facilityId) return { resolvedRows: rows, issues: [] as string[] };
 
     const issues: string[] = [];
-    const specimenMap: Record<string, string> = {};
-    const observationMap: Record<string, string> = {};
+    const validSpecimenSlugs = new Set<string>();
+    const validObservationSlugs = new Set<string>();
     const chargeItemMap: Record<string, string> = {};
     const locationMap: Record<string, string> = {};
 
-    const uniqueSpecimens = new Set<string>();
-    const uniqueObservations = new Set<string>();
+    const uniqueSpecimenSlugs = new Set<string>();
+    const uniqueObservationSlugs = new Set<string>();
     const uniqueActivityTitles = new Set<string>();
     const uniqueLocations = new Set<string>();
 
     rows.forEach((row) => {
-      row.data.specimen_names.forEach((name) => uniqueSpecimens.add(name));
-      row.data.observation_names.forEach((name) =>
-        uniqueObservations.add(name),
+      row.data.specimen_slugs.forEach((slug) =>
+        uniqueSpecimenSlugs.add(slug),
+      );
+      row.data.observation_slugs.forEach((slug) =>
+        uniqueObservationSlugs.add(slug),
       );
       const activityTitle = row.data.title.trim();
       if (activityTitle) {
@@ -134,46 +135,29 @@ export default function ActivityDefinitionMasterImport({
     });
 
     await Promise.all(
-      Array.from(uniqueSpecimens).map(async (name) => {
-        const response = await request<
-          PaginatedResponse<{ title: string; slug: string }>
-        >(
-          `/api/v1/facility/${facilityId}/specimen_definition/${queryString({
-            title: name,
-            limit: 10,
-          })}`,
-          { method: "GET" },
-        );
-        const match = response.results.find(
-          (item) => normalizeName(item.title) === normalizeName(name),
-        );
-        if (match) {
-          specimenMap[normalizeName(name)] = match.slug;
-        } else {
-          issues.push(`Specimen not found: ${name}`);
+      Array.from(uniqueSpecimenSlugs).map(async (slug) => {
+        try {
+          await request(
+            `/api/v1/facility/${facilityId}/specimen_definition/f-${facilityId}-${slug}/`,
+            { method: "GET" },
+          );
+          validSpecimenSlugs.add(slug);
+        } catch {
+          issues.push(`Specimen slug not found: ${slug}`);
         }
       }),
     );
 
     await Promise.all(
-      Array.from(uniqueObservations).map(async (name) => {
-        const response = await request<
-          PaginatedResponse<{ title: string; slug: string }>
-        >(
-          `/api/v1/observation_definition/${queryString({
-            facility: facilityId,
-            title: name,
-            limit: 10,
-          })}`,
-          { method: "GET" },
-        );
-        const match = response.results.find(
-          (item) => normalizeName(item.title) === normalizeName(name),
-        );
-        if (match) {
-          observationMap[normalizeName(name)] = match.slug;
-        } else {
-          issues.push(`Observation not found: ${name}`);
+      Array.from(uniqueObservationSlugs).map(async (slug) => {
+        try {
+          await request(
+            `/api/v1/observation_definition/f-${facilityId}-${slug}/`,
+            { method: "GET" },
+          );
+          validObservationSlugs.add(slug);
+        } catch {
+          issues.push(`Observation slug not found: ${slug}`);
         }
       }),
     );
@@ -234,19 +218,17 @@ export default function ActivityDefinitionMasterImport({
         healthcareServiceId: categoryMappings[row.data.category_name] ?? null,
       };
 
-      row.data.specimen_names.forEach((name) => {
-        const slug = specimenMap[normalizeName(name)];
-        if (!slug) {
-          updatedErrors.push(`Specimen not found: ${name}`);
+      row.data.specimen_slugs.forEach((slug) => {
+        if (!validSpecimenSlugs.has(slug)) {
+          updatedErrors.push(`Specimen slug not found: ${slug}`);
         } else {
           resolved.specimenSlugs.push(slug);
         }
       });
 
-      row.data.observation_names.forEach((name) => {
-        const slug = observationMap[normalizeName(name)];
-        if (!slug) {
-          updatedErrors.push(`Observation not found: ${name}`);
+      row.data.observation_slugs.forEach((slug) => {
+        if (!validObservationSlugs.has(slug)) {
+          updatedErrors.push(`Observation slug not found: ${slug}`);
         } else {
           resolved.observationSlugs.push(slug);
         }
@@ -268,6 +250,8 @@ export default function ActivityDefinitionMasterImport({
           updatedErrors.push(
             `Charge item not found for activity definition: ${activityTitle}`,
           );
+        } else {
+          resolved.chargeItemSlugs.push(slug);
         }
       }
 
@@ -448,8 +432,7 @@ export default function ActivityDefinitionMasterImport({
 
     for (const row of finalRows) {
       try {
-        const rawSlug = row.data.slug_value?.trim();
-        const slug = rawSlug ? rawSlug : await createSlug(row.data.title, 25);
+        const slug = row.data.slug_value;
         const detailSlug = `f-${facilityId}-${slug}`;
         const categorySlug =
           categorySlugMap.get(normalizeName(row.data.category_name)) || "";
@@ -468,8 +451,8 @@ export default function ActivityDefinitionMasterImport({
           facility: facilityId,
           specimen_requirements: row.resolved?.specimenSlugs ?? [],
           observation_result_requirements: row.resolved?.observationSlugs ?? [],
-          charge_item_definitions: [],
-          locations: [],
+          charge_item_definitions: row.resolved?.chargeItemSlugs ?? [],
+          locations: row.resolved?.locationIds ?? [],
           category: categorySlug,
           healthcare_service: row.resolved?.healthcareServiceId ?? null,
         };

@@ -6,6 +6,7 @@ import { csvEscape } from "@/utils/importHelpers";
 
 export const OBSERVATION_DEFINITION_CSV_HEADERS = [
   "title",
+  "slug_value",
   "description",
   "category",
   "status",
@@ -83,6 +84,7 @@ export const SAMPLE_CSV_ROWS = {
   row1: {
     base: [
       "Complete Blood Count",
+      "complete-blood-count",
       "CBC panel with Hemoglobin and Hematocrit",
       "laboratory",
       "active",
@@ -186,6 +188,7 @@ export const SAMPLE_CSV_ROWS = {
   row2: {
     base: [
       "Fasting Blood Sugar",
+      "fasting-blood-sugar",
       "Fasting blood glucose",
       "laboratory",
       "active",

@@ -119,6 +119,8 @@ export const parseSpecimenDefinitionCsv = (
     throw new Error(`Missing required headers: ${missingHeaders.join(", ")}`);
   }
 
+  const slugSeen = new Map<string, number>();
+
   return rows.map((row, index) => {
     const errors: string[] = [];
     const codeReferences: CodeReference[] = [];
@@ -141,6 +143,18 @@ export const parseSpecimenDefinitionCsv = (
     );
 
     if (!title) errors.push("Missing title");
+    if (!slugValue) {
+      errors.push("Missing slug_value");
+    } else {
+      const prevRow = slugSeen.get(slugValue);
+      if (prevRow !== undefined) {
+        errors.push(
+          `Duplicate slug_value "${slugValue}" (first seen in row ${prevRow})`,
+        );
+      } else {
+        slugSeen.set(slugValue, index + 2);
+      }
+    }
     if (!description) errors.push("Missing description");
 
     if (derivedFromUri) {
@@ -324,7 +338,7 @@ export const parseSpecimenDefinitionCsv = (
 
     const data: SpecimenRow = {
       title,
-      slug_value: slugValue || undefined,
+      slug_value: slugValue,
       status: SpecimenDefinitionStatus.active,
       description,
       derived_from_uri: derivedFromUri || undefined,

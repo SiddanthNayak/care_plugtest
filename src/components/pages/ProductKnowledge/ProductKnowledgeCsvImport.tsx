@@ -25,7 +25,6 @@ import {
   type ProductKnowledgeProcessedRow,
 } from "@/utils/masterImport/productKnowledge";
 import { upsertResourceCategories } from "@/utils/resourceCategory";
-import { createSlug } from "@/utils/slug";
 
 type ProcessedRow = ProductKnowledgeProcessedRow;
 
@@ -102,8 +101,7 @@ export default function ProductKnowledgeCsvImport({
       const categorySlug =
         categorySlugMap.get(
           normalizeProductKnowledgeName(datapoint.resourceCategory),
-        ) ||
-        `f-${facilityId}-pk-${await createSlug(datapoint.resourceCategory)}`;
+        ) || "";
       const productKnowledge: ProductKnowledgeCreate = {
         slug_value: datapoint.slug,
         name: datapoint.name,

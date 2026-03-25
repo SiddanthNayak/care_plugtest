@@ -8,7 +8,7 @@ export type CodePayload = {
 
 export type ActivityDefinitionRow = {
   title: string;
-  slug_value?: string;
+  slug_value: string;
   description: string;
   usage: string;
   status: string;
@@ -19,9 +19,9 @@ export type ActivityDefinitionRow = {
   diagnostic_report_codes: CodePayload[];
   derived_from_uri?: string;
   category_name: string;
-  specimen_names: string[];
-  observation_names: string[];
-  charge_item_names: string[];
+  specimen_slugs: string[];
+  observation_slugs: string[];
+  charge_item_slugs: string[];
   charge_item_price?: string;
   location_names: string[];
   healthcare_service_name?: string;
@@ -129,9 +129,12 @@ export const parseActivityDefinitionCsv = (
     throw new Error(`Missing required headers: ${missingHeaders.join(", ")}`);
   }
 
+  const slugSeen = new Map<string, number>();
+
   return rows.map((row, index) => {
     const errors: string[] = [];
     const title = getCellValue(row, headerMap, "title").trim();
+    const slugValue = getCellValue(row, headerMap, "slug_value").trim();
     const description = getCellValue(row, headerMap, "description").trim();
     const usage = getCellValue(row, headerMap, "usage").trim();
     const status = getCellValue(row, headerMap, "status").trim();
@@ -151,6 +154,18 @@ export const parseActivityDefinitionCsv = (
     ).trim();
 
     if (!title) errors.push("Missing title");
+    if (!slugValue) {
+      errors.push("Missing slug_value");
+    } else {
+      const prevRow = slugSeen.get(slugValue);
+      if (prevRow !== undefined) {
+        errors.push(
+          `Duplicate slug_value "${slugValue}" (first seen in row ${prevRow})`,
+        );
+      } else {
+        slugSeen.set(slugValue, index + 2);
+      }
+    }
     if (!description) errors.push("Missing description");
     if (!usage) errors.push("Missing usage");
     if (!categoryName) errors.push("Missing category name");
@@ -216,7 +231,7 @@ export const parseActivityDefinitionCsv = (
 
     const data: ActivityDefinitionRow = {
       title,
-      slug_value: getCellValue(row, headerMap, "slug_value").trim(),
+      slug_value: slugValue,
       description,
       usage,
       status: resolvedStatus,
@@ -231,14 +246,14 @@ export const parseActivityDefinitionCsv = (
       diagnostic_report_codes: diagnosticReportCodes,
       derived_from_uri: getCellValue(row, headerMap, "derived_from_uri").trim(),
       category_name: categoryName,
-      specimen_names: splitCellValues(
-        getCellValue(row, headerMap, "specimen_names").trim(),
+      specimen_slugs: splitCellValues(
+        getCellValue(row, headerMap, "specimen_slugs").trim(),
       ),
-      observation_names: splitCellValues(
-        getCellValue(row, headerMap, "observation_names").trim(),
+      observation_slugs: splitCellValues(
+        getCellValue(row, headerMap, "observation_slugs").trim(),
       ),
-      charge_item_names: splitCellValues(
-        getCellValue(row, headerMap, "charge_item_names").trim(),
+      charge_item_slugs: splitCellValues(
+        getCellValue(row, headerMap, "charge_item_slugs").trim(),
       ),
       charge_item_price: chargeItemPrice || undefined,
       location_names: splitCellValues(

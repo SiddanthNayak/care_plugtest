@@ -23,7 +23,6 @@ import {
   parseSpecimenDefinitionCsv,
   type SpecimenProcessedRow,
 } from "@/utils/masterImport/specimenDefinition";
-import { createSlug } from "@/utils/slug";
 
 const CODE_ERROR_PREFIX = "Invalid code:";
 
@@ -202,9 +201,7 @@ export default function SpecimenDefinitionCsvImport({
 
     for (const row of validRows) {
       try {
-        const slug = row.data.slug_value?.trim()
-          ? row.data.slug_value.trim()
-          : await createSlug(row.data.title, 25);
+        const slug = row.data.slug_value!;
 
         const hasTypeTested =
           row.data.is_derived !== undefined ||

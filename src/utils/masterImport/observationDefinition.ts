@@ -12,6 +12,7 @@ export type ObservationComponentPayload = JsonObject;
 
 export type ObservationRow = {
   title: string;
+  slug_value: string;
   description: string;
   category: string;
   status: string;
@@ -483,9 +484,12 @@ export const parseObservationDefinitionCsv = (
   const flatDims = detectFlatDimensions(headerMap);
   const useFlatComponents = flatDims !== null;
 
+  const slugSeen = new Map<string, number>();
+
   return rows.map((row, index) => {
     const errors: string[] = [];
     const title = getCellValue(row, headerMap, "title").trim();
+    const slugValue = getCellValue(row, headerMap, "slug_value").trim();
     const description = getCellValue(row, headerMap, "description").trim();
     const category = getCellValue(row, headerMap, "category").trim();
     const status = getCellValue(row, headerMap, "status").trim();
@@ -499,6 +503,18 @@ export const parseObservationDefinitionCsv = (
     const codeDisplay = getCellValue(row, headerMap, "code_display").trim();
 
     if (!title) errors.push("Missing title");
+    if (!slugValue) {
+      errors.push("Missing slug_value");
+    } else {
+      const prevRow = slugSeen.get(slugValue);
+      if (prevRow !== undefined) {
+        errors.push(
+          `Duplicate slug_value "${slugValue}" (first seen in row ${prevRow})`,
+        );
+      } else {
+        slugSeen.set(slugValue, index + 2);
+      }
+    }
     if (!description) errors.push("Missing description");
     if (!category) {
       errors.push("Missing category");
@@ -637,6 +653,7 @@ export const parseObservationDefinitionCsv = (
 
     const data: ObservationRow = {
       title,
+      slug_value: slugValue,
       description,
       category,
       status: status || "active",
