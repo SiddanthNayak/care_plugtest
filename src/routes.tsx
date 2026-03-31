@@ -16,6 +16,7 @@ import ProductExport from "@/components/pages/exports/ProductExport";
 import ProductKnowledgeExport from "@/components/pages/exports/ProductKnowledgeExport";
 import SpecimenDefinitionExport from "@/components/pages/exports/SpecimenDefinitionExport";
 import UsersExport from "@/components/pages/exports/UsersExport";
+import ValueSetExport from "@/components/pages/exports/ValueSetExport";
 import ImportsLayout, { ImportTabId } from "@/components/pages/ImportsLayout";
 import LinkUsersImport from "@/components/pages/LinkUsersImport";
 import LocationImport from "@/components/pages/LocationImport";
@@ -24,7 +25,7 @@ import ProductImport from "@/components/pages/ProductImport";
 import ProductKnowledgeImport from "@/components/pages/ProductKnowledge/ProductKnowledgeImport";
 import SpecimenDefinitionImport from "@/components/pages/SpecimenDefinition/SpecimenDefinitionImport";
 import UsersImportPage from "@/components/pages/UsersImport";
-// import ValueSetsImport from "@/components/pages/ValueSetsImport";
+import ValueSetImport from "@/components/pages/ValueSet/ValueSetImport";
 
 const renderImportsPage = (activeTab: ImportTabId, content: ReactNode) => (
   <ImportsLayout activeTab={activeTab}>{content}</ImportsLayout>
@@ -57,8 +58,8 @@ const routes = {
     ),
   "/admin/import/activity-definition": () =>
     renderImportsPage("activity-definition", <ActivityDefinitionImport />),
-  // "/admin/import/valuesets": () =>
-  //   renderImportsPage("valuesets", <ValueSetsImport />),
+  "/admin/import/valuesets": () =>
+    renderImportsPage("valuesets", <ValueSetImport />),
   "/admin/import/specimen-definitions": () =>
     renderImportsPage("specimen-definitions", <SpecimenDefinitionImport />),
 
@@ -84,6 +85,8 @@ const routes = {
     renderExportsPage("activity-definition", <ActivityDefinitionExport />),
   "/admin/export/specimen-definitions": () =>
     renderExportsPage("specimen-definitions", <SpecimenDefinitionExport />),
+  "/admin/export/valuesets": () =>
+    renderExportsPage("valuesets", <ValueSetExport />),
 };
 
 export default routes;

@@ -19,7 +19,8 @@ export type ExportTabId =
   | "product"
   | "observation-definition"
   | "activity-definition"
-  | "specimen-definitions";
+  | "specimen-definitions"
+  | "valuesets";
 
 interface ExportsLayoutProps {
   activeTab: ExportTabId;
@@ -80,6 +81,11 @@ const getTabConfig = () => [
     id: "activity-definition" as const,
     label: "Activity Definitions",
     path: "/admin/export/activity-definition",
+  },
+  {
+    id: "valuesets" as const,
+    label: "Value Sets",
+    path: "/admin/export/valuesets",
   },
 ];
 
