@@ -21,6 +21,8 @@ A plug-in for [Care](https://github.com/ohcnetwork/care_fe) that helps hospital 
   - [8. Specimen Definitions](#8-specimen-definitions)
   - [9. Observation Definitions](#9-observation-definitions)
   - [10. Activity Definitions](#10-activity-definitions)
+  - [11. Value Sets](#11-value-sets)
+- [Exports](#exports)
 - [CSV Upload vs Dataset Import](#csv-upload-vs-dataset-import)
 
 ---
@@ -550,6 +552,111 @@ title,slug_value,description,usage,classification,category_name,code_system,code
 Complete Blood Count,complete-blood-count,CBC with differential,Order CBC for baseline evaluation,laboratory,Hematology,http://snomed.info/sct,26604007,Complete blood count,whole-blood,"hemoglobin,platelet-count",cbc-charge,Main Lab,General Medicine
 Chest X-Ray PA,chest-xray-pa,PA view chest radiograph,Chest X-ray for screening,imaging,Radiology,http://snomed.info/sct,399208008,Chest X-ray PA,,,chest-xray-charge,Radiology Suite,Radiology
 ```
+
+---
+
+### 11. Value Sets
+
+Import value sets — curated lists of medical codes grouped together for a specific purpose. For example, you might create a value set called "Glucose Tests" that groups together all the LOINC codes related to blood glucose measurements, or a "Diabetes Diagnosis" set with relevant SNOMED codes.
+
+Value sets are used across the system to define which codes are valid in certain contexts (e.g. which lab tests belong to a particular panel, which diagnoses are relevant for a department).
+
+**How the CSV works:**
+
+A single value set can span **multiple rows** in the CSV. Rows are grouped by the `slug` column — all rows with the same slug belong to the same value set. The `name` and `description` only need to appear on the **first row** of each group (though repeating them on every row is fine too).
+
+Each row defines either a **concept** (a specific code) or a **filter** (a rule to match codes). You cannot mix concepts and filters for the same coding system within the same value set.
+
+**Columns:**
+
+- `name` — Display name of the value set (e.g. "Glucose Tests"). Required on at least the first row for each value set.
+- `slug` — Unique short ID that groups rows together (see [What Is a Slug?](#what-is-a-slug)). Required on every row.
+- `description` — Brief description (optional)
+- `compose_type` — Either `include` (codes that belong in this set) or `exclude` (codes to leave out)
+- `system` — The coding system. Must be one of:
+  - `http://loinc.org` — for lab test codes
+  - `http://snomed.info/sct` — for clinical/diagnosis codes
+  - `http://unitsofmeasure.org` — for units of measurement
+- `entry_type` — Either `concept` (a specific code) or `filter` (a rule)
+- `code` — The code value (required when entry_type is `concept`). For example, `2345-7` for a LOINC glucose test, or `73211009` for SNOMED diabetes mellitus.
+- `display` — (Optional) Display name for the code. If you leave this blank, the system will look up the correct display name automatically during verification.
+- `filter_property` — The property to filter on (required when entry_type is `filter`)
+- `filter_op` — The filter operator (required when entry_type is `filter`). Must be one of: `=`, `is-a`, `descendent-of`, `is-not-a`, `regex`, `in`, `not-in`, `generalizes`, `child-of`, `descendent-leaf`, `exists`
+- `filter_value` — The value to filter by (required when entry_type is `filter`)
+
+**Important rules:**
+
+- For any given coding system within a value set, you must use **either** concepts **or** filters — you cannot mix both. For example, you can't have some LOINC entries as concepts and others as filters in the same value set.
+- All codes are **verified** against the server before import. If a code doesn't exist in its coding system, it will be flagged as invalid.
+
+**What happens during import:**
+
+1. You upload the CSV and the system validates all rows (checks for missing fields, invalid systems, invalid operators, etc.)
+2. You review the data in a table. Valid rows are marked green, invalid rows show their errors in red.
+3. The system verifies every code against the server to make sure they actually exist. Display names are filled in automatically during this step.
+4. You see a final summary and click Import. Value sets that already exist (same slug) are **updated**; new ones are **created**.
+
+**Sample CSV:**
+
+```csv
+name,slug,description,compose_type,system,entry_type,code,display,filter_property,filter_op,filter_value
+Glucose Tests,glucose-tests,Blood glucose test codes,include,http://loinc.org,concept,2345-7,,,,
+Glucose Tests,glucose-tests,,include,http://loinc.org,concept,2339-0,,,,
+Glucose Tests,glucose-tests,,include,http://loinc.org,concept,41653-7,,,,
+Glucose Tests,glucose-tests,,include,http://unitsofmeasure.org,concept,mg/dL,,,,
+Glucose Tests,glucose-tests,,include,http://unitsofmeasure.org,concept,mmol/L,,,,
+Diabetes Diagnosis,diabetes-diagnosis,Diabetes mellitus related SNOMED codes,include,http://snomed.info/sct,concept,73211009,,,,
+Diabetes Diagnosis,diabetes-diagnosis,,include,http://snomed.info/sct,concept,44054006,,,,
+Diabetes Diagnosis,diabetes-diagnosis,,include,http://snomed.info/sct,concept,46635009,,,,
+Lab Panel Filters,lab-panel-filters,Lab tests filtered by class,include,http://loinc.org,filter,,,CLASS,is-a,CHEM
+Lab Panel Filters,lab-panel-filters,,include,http://loinc.org,filter,,,CLASS,is-a,HEM/BC
+Lab Panel Filters,lab-panel-filters,,exclude,http://loinc.org,filter,,,STATUS,=,DEPRECATED
+Common Vitals,common-vitals,Vital sign observation codes,include,http://loinc.org,concept,8867-4,,,,
+Common Vitals,common-vitals,,include,http://loinc.org,concept,8310-5,,,,
+Common Vitals,common-vitals,,include,http://loinc.org,concept,8480-6,,,,
+```
+
+In this example:
+
+- **Glucose Tests** — Includes 3 LOINC codes for glucose measurements plus 2 units of measure (mg/dL and mmol/L)
+- **Diabetes Diagnosis** — Includes 3 SNOMED codes for different types of diabetes
+- **Lab Panel Filters** — Uses filters instead of specific codes: includes lab tests in the CHEM and HEM/BC classes, but excludes anything marked DEPRECATED
+- **Common Vitals** — Includes 3 LOINC codes for heart rate, body temperature, and systolic blood pressure
+
+---
+
+## Exports
+
+Every import type has a matching **export** feature. Exports let you download the current data from your facility as a CSV file — in the same format used for imports.
+
+**How exports work:**
+
+1. Go to the **Exports** tab and select your facility
+2. Pick the data type you want to export (e.g. Users, Locations, Value Sets)
+3. The system fetches all records automatically. You'll see a progress bar if there are many records.
+4. Click **Download CSV** to save the file
+
+**What you can export:**
+
+- **Users** — All staff accounts in the facility
+- **Departments** — Department hierarchy
+- **Locations** — Buildings, wards, rooms, and beds
+- **Charge Item Definitions** — Billable items and their prices
+- **Product Knowledge** — Medication and consumable catalogue
+- **Products** — Inventory items
+- **Specimen Definitions** — Specimen/sample type definitions
+- **Observation Definitions** — Lab observation definitions with reference ranges (exported as two files: definitions + components)
+- **Activity Definitions** — Orderable clinical activities
+- **Value Sets** — Code groupings with all their included/excluded concepts and filters
+
+**Why export?**
+
+- **Backup** — Save a snapshot of your current setup
+- **Transfer** — Move data from one facility to another. Export from facility A, then import the CSV into facility B.
+- **Review** — Download and review your data in a spreadsheet application like Excel or Google Sheets
+- **Edit in bulk** — Export, make changes in a spreadsheet, then re-import the updated CSV
+
+> **Tip:** Exported CSVs use the exact same format as imports. You can export, edit, and re-import without any reformatting.
 
 ---
 
