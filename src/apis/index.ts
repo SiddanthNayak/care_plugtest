@@ -1,7 +1,7 @@
 import { queryString, request } from "./request";
 import { PaginatedResponse } from "./types";
 
-export { APIError, queryString, request } from "./request";
+export { APIError, formatApiError, queryString, request } from "./request";
 export type { PaginatedResponse } from "./types";
 
 export const apis = {
