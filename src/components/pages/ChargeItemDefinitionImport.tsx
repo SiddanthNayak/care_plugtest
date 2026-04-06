@@ -182,12 +182,6 @@ Bed Charges,bed-charges,Per day bed charge,Bed usage,1500`;
   };
 
   const runImport = async () => {
-    if (!categoryTitle.trim()) {
-      setUploadError("Category title is required");
-      setCurrentStep("upload");
-      return;
-    }
-
     const validRows = processedRows.filter((row) => row.errors.length === 0);
     if (validRows.length === 0) {
       setResults({
@@ -348,22 +342,38 @@ Bed Charges,bed-charges,Per day bed charge,Bed usage,1500`;
               />
             </div>
 
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+            <div
+              className={`border-2 border-dashed rounded-lg p-8 text-center ${
+                categoryTitle.trim()
+                  ? "border-gray-300"
+                  : "border-gray-200 bg-gray-50 opacity-60"
+              }`}
+            >
               <input
                 type="file"
                 accept=".csv"
                 onChange={handleFileUpload}
                 className="hidden"
                 id="charge-item-upload"
+                disabled={!categoryTitle.trim()}
               />
-              <label htmlFor="charge-item-upload" className="cursor-pointer">
+              <label
+                htmlFor="charge-item-upload"
+                className={
+                  categoryTitle.trim() ? "cursor-pointer" : "cursor-not-allowed"
+                }
+              >
                 <div className="flex flex-col items-center gap-4">
                   <Upload className="h-12 w-12 text-gray-400" />
                   <div>
                     <p className="text-lg font-medium">
-                      Click to upload CSV file
+                      {categoryTitle.trim()
+                        ? "Click to upload CSV file"
+                        : "Enter a category title above to upload"}
                     </p>
-                    <p className="text-sm text-gray-500">or drag and drop</p>
+                    {categoryTitle.trim() && (
+                      <p className="text-sm text-gray-500">or drag and drop</p>
+                    )}
                   </div>
                   <p className="text-xs text-gray-400">
                     Expected columns: title, slug_value, description, purpose,
@@ -395,7 +405,7 @@ Bed Charges,bed-charges,Per day bed charge,Bed usage,1500`;
           <CardHeader>
             <CardTitle>Charge Item Import Wizard</CardTitle>
             <CardDescription>
-              Review and validate charge items before importing
+              Importing into category: <strong>{categoryTitle}</strong>
             </CardDescription>
             <div className="mt-4">
               <Progress value={100} className="h-2" />
