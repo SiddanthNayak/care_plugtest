@@ -153,6 +153,10 @@ export const apis = {
           parent?: string;
           limit?: number;
           offset?: number;
+          mode?: string;
+          ordering?: string;
+          status?: string;
+          mine?: boolean;
         },
       ) => {
         return await request<
@@ -160,6 +164,7 @@ export const apis = {
             id: string;
             name: string;
             form: string;
+            has_children: boolean;
             parent?: { id: string; name: string } | null;
           }>
         >(`/api/v1/facility/${facilityId}/location/${queryString(query)}`, {
@@ -398,6 +403,33 @@ export const apis = {
       },
     },
 
+    // ── Delivery Order ──────────────────────────────────────────
+    deliveryOrder: {
+      create: async (facilityId: string, body: Record<string, unknown>) => {
+        return await request<{ id: string }>(
+          `/api/v1/facility/${facilityId}/order/delivery/`,
+          {
+            method: "POST",
+            body: JSON.stringify(body),
+          },
+        );
+      },
+
+      update: async (
+        facilityId: string,
+        orderId: string,
+        body: Record<string, unknown>,
+      ) => {
+        return await request<{ id: string }>(
+          `/api/v1/facility/${facilityId}/order/delivery/${orderId}/`,
+          {
+            method: "PUT",
+            body: JSON.stringify(body),
+          },
+        );
+      },
+    },
+
     // ── Resource Category ────────────────────────────────────────
     resourceCategory: {
       list: async (
@@ -442,6 +474,31 @@ export const apis = {
           },
         );
       },
+    },
+  },
+
+  // ─── Supply Delivery (non-facility-scoped) ───────────────────
+  supplyDelivery: {
+    create: async (body: Record<string, unknown>) => {
+      return await request<{ id: string }>("/api/v1/supply_delivery/", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+  },
+
+  // ─── Organizations ──────────────────────────────────────────
+  organization: {
+    list: async (query?: {
+      org_type?: string;
+      name?: string;
+      limit?: number;
+      offset?: number;
+    }) => {
+      return await request<PaginatedResponse<{ id: string; name: string }>>(
+        `/api/v1/organization/${queryString(query)}`,
+        { method: "GET" },
+      );
     },
   },
 };

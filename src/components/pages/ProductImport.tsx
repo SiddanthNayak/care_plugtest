@@ -1,7 +1,8 @@
-import { AlertCircle, CheckCircle2, Upload } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { APIError, apis } from "@/apis";
+import { LocationTreePicker } from "@/components/LocationTreePicker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { MonetaryComponentType } from "@/types/base/monetaryComponent/monetaryComponent";
 import { ResourceCategoryResourceType } from "@/types/base/resourceCategory/resourceCategory";
 import {
@@ -70,6 +78,8 @@ interface ImportResults {
   created: number;
   failed: number;
   skipped: number;
+  inventoryAdded: number;
+  inventoryFailed: number;
   failures: { rowIndex: number; name?: string; reason: string }[];
 }
 
@@ -142,18 +152,30 @@ const buildProductPayload = (
 
 export default function ProductImport({ facilityId }: ProductImportProps) {
   const [currentStep, setCurrentStep] = useState<
-    "upload" | "review" | "importing" | "done"
+    "upload" | "review" | "configure" | "importing" | "done"
   >("upload");
   const [uploadError, setUploadError] = useState<string>("");
   const [uploadedFileName, setUploadedFileName] = useState<string>("");
   const [processedRows, setProcessedRows] = useState<ProcessedRow[]>([]);
   const [results, setResults] = useState<ImportResults | null>(null);
   const [totalToImport, setTotalToImport] = useState(0);
+  const [importPhase, setImportPhase] = useState<"products" | "inventory">(
+    "products",
+  );
   const [mappingStatus, setMappingStatus] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
   const [mappingIssues, setMappingIssues] = useState<string[]>([]);
   const [lastMappingSignature, setLastMappingSignature] = useState<string>("");
+
+  // Configure step state
+  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>(
+    [],
+  );
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("");
+  const [selectedLocationName, setSelectedLocationName] = useState<string>("");
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
+  const [configLoading, setConfigLoading] = useState(false);
 
   const summary = useMemo(() => {
     const valid = processedRows.filter((row) => row.errors.length === 0).length;
@@ -449,6 +471,31 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
     resolveMappings,
   ]);
 
+  // Load suppliers when entering configure step
+  useEffect(() => {
+    if (currentStep !== "configure") return;
+    if (!facilityId) return;
+
+    const loadSuppliers = async () => {
+      setConfigLoading(true);
+      try {
+        const supplierResponse = await apis.organization.list({
+          org_type: "product_supplier",
+          limit: 200,
+        });
+        setSuppliers(
+          supplierResponse.results.map((s) => ({ id: s.id, name: s.name })),
+        );
+      } catch {
+        setSuppliers([]);
+      } finally {
+        setConfigLoading(false);
+      }
+    };
+
+    loadSuppliers();
+  }, [currentStep, facilityId]);
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -678,6 +725,8 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
         created: 0,
         failed: 0,
         skipped: invalidRows,
+        inventoryAdded: 0,
+        inventoryFailed: 0,
         failures: [],
       });
       setCurrentStep("done");
@@ -685,11 +734,14 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
     }
 
     setCurrentStep("importing");
+    setImportPhase("products");
     setResults({
       processed: 0,
       created: 0,
       failed: 0,
       skipped: invalidRows,
+      inventoryAdded: 0,
+      inventoryFailed: 0,
       failures: [],
     });
 
@@ -718,6 +770,14 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
       resourceType: ResourceCategoryResourceType.charge_item_definition,
       slugPrefix: "cid",
     });
+
+    // Phase 1: Create PK, CID, and Product for each row
+    const inventoryItems: {
+      productId: string;
+      quantity: number;
+      name: string;
+      rowIndex: number;
+    }[] = [];
 
     for (const row of validRows) {
       try {
@@ -814,10 +874,20 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
           row.data,
         );
 
-        await apis.facility.product.create(
+        const productResponse = (await apis.facility.product.create(
           facilityId,
           productPayload as unknown as Record<string, unknown>,
-        );
+        )) as { id: string };
+
+        // Collect items for inventory addition
+        if (row.data.inventoryQuantity > 0 && productResponse.id) {
+          inventoryItems.push({
+            productId: productResponse.id,
+            quantity: row.data.inventoryQuantity,
+            name: row.data.name,
+            rowIndex: row.rowIndex,
+          });
+        }
 
         setResults((prev) =>
           prev
@@ -843,6 +913,112 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
               }
             : prev,
         );
+      }
+    }
+
+    // Phase 2: Add to inventory via delivery orders + supply deliveries
+    if (inventoryItems.length > 0 && selectedLocationId) {
+      setImportPhase("inventory");
+      const BATCH_SIZE = 20;
+      const today = new Date().toISOString().split("T")[0];
+
+      for (let i = 0; i < inventoryItems.length; i += BATCH_SIZE) {
+        const batch = inventoryItems.slice(i, i + BATCH_SIZE);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+
+        try {
+          // Create delivery order for this batch
+          const deliveryOrderPayload: Record<string, unknown> = {
+            name: `Product Import Batch ${batchNumber} — ${today}`,
+            status: "pending",
+            destination: selectedLocationId,
+            supplier: selectedSupplierId,
+            note: "Automated delivery order from product import",
+          };
+
+          const deliveryOrder = await apis.facility.deliveryOrder.create(
+            facilityId,
+            deliveryOrderPayload,
+          );
+          const deliveryOrderId = deliveryOrder.id;
+
+          // Create supply deliveries for each item in the batch
+          for (const item of batch) {
+            try {
+              await apis.supplyDelivery.create({
+                status: "completed",
+                supplied_item_type: "product",
+                supplied_item: item.productId,
+                supplied_item_quantity: item.quantity,
+                supplied_item_condition: "normal",
+                destination: selectedLocationId,
+                order: deliveryOrderId,
+              });
+
+              setResults((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      inventoryAdded: prev.inventoryAdded + 1,
+                    }
+                  : prev,
+              );
+            } catch {
+              setResults((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      inventoryFailed: prev.inventoryFailed + 1,
+                      failures: [
+                        ...prev.failures,
+                        {
+                          rowIndex: item.rowIndex,
+                          name: item.name,
+                          reason: "Failed to create supply delivery",
+                        },
+                      ],
+                    }
+                  : prev,
+              );
+            }
+          }
+
+          // Mark delivery order as completed
+          try {
+            await apis.facility.deliveryOrder.update(
+              facilityId,
+              deliveryOrderId,
+              {
+                name: `Product Import Batch ${batchNumber} — ${today}`,
+                status: "completed",
+                destination: selectedLocationId,
+                note: "Completed via product import",
+              },
+            );
+          } catch {
+            // Non-critical — the supply deliveries were already created
+          }
+        } catch {
+          // If delivery order creation fails, mark all items in batch as failed
+          for (const item of batch) {
+            setResults((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    inventoryFailed: prev.inventoryFailed + 1,
+                    failures: [
+                      ...prev.failures,
+                      {
+                        rowIndex: item.rowIndex,
+                        name: item.name,
+                        reason: "Failed to create delivery order for batch",
+                      },
+                    ],
+                  }
+                : prev,
+            );
+          }
+        }
       }
     }
 
@@ -1006,11 +1182,138 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
                 Back
               </Button>
               <Button
-                onClick={runImport}
+                onClick={() => setCurrentStep("configure")}
                 disabled={
                   summary.valid === 0 ||
                   mappingStatus === "loading" ||
                   mappingStatus === "error"
+                }
+              >
+                Continue
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (currentStep === "configure") {
+    const hasInventoryItems = processedRows.some(
+      (row) => row.errors.length === 0 && row.data.inventoryQuantity > 0,
+    );
+
+    return (
+      <div className="max-w-5xl mx-auto">
+        <Card>
+          <CardHeader>
+            <CardTitle>Configure Inventory Destination</CardTitle>
+            <CardDescription>
+              Select the destination location and supplier for inventory
+              delivery orders.
+            </CardDescription>
+            <div className="mt-4">
+              <Progress value={66} className="h-2" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {configLoading ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-4 text-gray-500">
+                <Loader2 className="h-8 w-8 animate-spin" />
+                <p className="text-sm">Loading locations and suppliers…</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {!hasInventoryItems && (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      No rows have an inventoryQuantity greater than 0. Products
+                      will be created but no inventory stock will be added. You
+                      can still select a location for future reference.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold">
+                        Destination Location{" "}
+                        <span className="text-red-500">*</span>
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Where the imported stock will be delivered to.
+                      </p>
+                    </div>
+                    {facilityId && (
+                      <LocationTreePicker
+                        facilityId={facilityId}
+                        value={selectedLocationId}
+                        valueName={selectedLocationName}
+                        onValueChange={(id, name) => {
+                          setSelectedLocationId(id);
+                          setSelectedLocationName(name);
+                        }}
+                        placeholder="Select location"
+                        className="w-full max-w-[675px] md:w-72"
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold">
+                        Supplier <span className="text-red-500">*</span>
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        The vendor/supplier for the delivery order.
+                      </p>
+                    </div>
+                    <Select
+                      value={selectedSupplierId}
+                      onValueChange={setSelectedSupplierId}
+                    >
+                      <SelectTrigger className="w-full md:w-72">
+                        <SelectValue placeholder="Select supplier" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {suppliers.map((supplier) => (
+                          <SelectItem key={supplier.id} value={supplier.id}>
+                            {supplier.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {(!selectedLocationId || !selectedSupplierId) &&
+                  hasInventoryItems && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        A destination location and supplier are required to add
+                        items to inventory.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+              </div>
+            )}
+
+            <div className="flex justify-between mt-6">
+              <Button
+                variant="outline"
+                onClick={() => setCurrentStep("review")}
+              >
+                Back
+              </Button>
+              <Button
+                onClick={runImport}
+                disabled={
+                  configLoading ||
+                  (hasInventoryItems &&
+                    (!selectedLocationId || !selectedSupplierId))
                 }
               >
                 Import
@@ -1034,7 +1337,9 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
           <CardHeader>
             <CardTitle>Importing Products</CardTitle>
             <CardDescription>
-              Please keep this window open while we import your data.
+              {importPhase === "products"
+                ? "Creating products… (Phase 1 of 2)"
+                : "Adding to inventory… (Phase 2 of 2)"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1045,6 +1350,16 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
               <Badge variant="secondary">Failed: {results?.failed ?? 0}</Badge>
               <Badge variant="outline">Skipped: {results?.skipped ?? 0}</Badge>
             </div>
+            {importPhase === "inventory" && (
+              <div className="mt-3 flex flex-wrap gap-4 text-sm">
+                <Badge variant="primary">
+                  Inventory Added: {results?.inventoryAdded ?? 0}
+                </Badge>
+                <Badge variant="secondary">
+                  Inventory Failed: {results?.inventoryFailed ?? 0}
+                </Badge>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -1065,6 +1380,14 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
             <Badge variant="primary">Created: {results?.created ?? 0}</Badge>
             <Badge variant="secondary">Failed: {results?.failed ?? 0}</Badge>
             <Badge variant="outline">Skipped: {results?.skipped ?? 0}</Badge>
+            <Badge variant="primary">
+              Inventory Added: {results?.inventoryAdded ?? 0}
+            </Badge>
+            {(results?.inventoryFailed ?? 0) > 0 && (
+              <Badge variant="secondary">
+                Inventory Failed: {results?.inventoryFailed ?? 0}
+              </Badge>
+            )}
           </div>
 
           {results?.failures.length ? (
@@ -1112,6 +1435,9 @@ export default function ProductImport({ facilityId }: ProductImportProps) {
                 setMappingIssues([]);
                 setMappingStatus("idle");
                 setLastMappingSignature("");
+                setSelectedLocationId("");
+                setSelectedLocationName("");
+                setSelectedSupplierId("");
                 setCurrentStep("upload");
               }}
             >
