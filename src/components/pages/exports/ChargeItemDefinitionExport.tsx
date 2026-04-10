@@ -15,9 +15,10 @@ interface ChargeItemDefinitionRead {
   status: string;
   price_components: MonetaryComponent[];
   slug_config?: { slug_value: string };
+  category?: { title: string };
 }
 
-const CSV_HEADERS = ["title", "slug_value", "description", "purpose", "price"];
+const CSV_HEADERS = ["title", "slug_value", "description", "purpose", "price", "category"];
 
 export default function ChargeItemDefinitionExport({
   facilityId,
@@ -45,6 +46,7 @@ export default function ChargeItemDefinitionExport({
           item.description ?? "",
           item.purpose ?? "",
           String(basePrice),
+          item.category?.title ?? "",
         ];
       }}
       filename={`charge_item_definitions_export_${facilityId}.csv`}

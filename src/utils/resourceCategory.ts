@@ -43,7 +43,6 @@ export async function upsertResourceCategories({
     {
       limit: 200,
       resource_type: resourceType,
-      resource_sub_type: ResourceCategorySubType.other,
     },
   )) as unknown as { results: ResourceCategoryRead[] };
 

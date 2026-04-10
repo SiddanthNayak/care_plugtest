@@ -13,16 +13,15 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
-  ResourceCategoryRead,
   ResourceCategoryResourceType,
-  ResourceCategorySubType,
 } from "@/types/base/resourceCategory/resourceCategory";
 import {
   ChargeItemDefinitionCreate,
   ChargeItemDefinitionStatus,
 } from "@/types/billing/chargeItemDefinition/chargeItemDefinition";
 import { parseCsvText } from "@/utils/csv";
-import { createSlug, isUrlSafeSlug } from "@/utils/slug";
+import { upsertResourceCategories } from "@/utils/resourceCategory";
+import { isUrlSafeSlug } from "@/utils/slug";
 
 interface ChargeItemImportProps {
   facilityId?: string;
@@ -34,6 +33,7 @@ const REQUIRED_HEADERS = [
   "description",
   "purpose",
   "price",
+  "category",
 ] as const;
 
 type ChargeItemRow = {
@@ -42,6 +42,7 @@ type ChargeItemRow = {
   description: string;
   purpose: string;
   price: string;
+  category: string;
 };
 
 interface ProcessedRow {
@@ -64,7 +65,6 @@ const normalizeHeader = (header: string) =>
 export default function ChargeItemDefinitionImport({
   facilityId,
 }: ChargeItemImportProps) {
-  const [categoryTitle, setCategoryTitle] = useState("");
   const [currentStep, setCurrentStep] = useState<
     "upload" | "review" | "importing" | "done"
   >("upload");
@@ -127,6 +127,7 @@ export default function ChargeItemDefinitionImport({
             description: row[headerMap.description] ?? "",
             purpose: row[headerMap.purpose] ?? "",
             price: row[headerMap.price] ?? "",
+            category: row[headerMap.category] ?? "",
           };
 
           const errors: string[] = [];
@@ -150,6 +151,7 @@ export default function ChargeItemDefinitionImport({
             }
           }
           if (!data.price.trim()) errors.push("Missing price");
+          if (!data.category.trim()) errors.push("Missing category");
 
           return {
             rowIndex: index + 2,
@@ -169,9 +171,9 @@ export default function ChargeItemDefinitionImport({
   };
 
   const downloadSample = () => {
-    const sampleCSV = `title,slug_value,description,purpose,price
-Consultation Fee,consultation-fee,Doctor consultation fee,Consultation charge,250
-Bed Charges,bed-charges,Per day bed charge,Bed usage,1500`;
+    const sampleCSV = `title,slug_value,description,purpose,price,category
+Consultation Fee,consultation-fee,Doctor consultation fee,Consultation charge,250,Consultation Charges
+Bed Charges,bed-charges,Per day bed charge,Bed usage,1500,Radiology Charges`;
     const blob = new Blob([sampleCSV], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -206,37 +208,24 @@ Bed Charges,bed-charges,Per day bed charge,Bed usage,1500`;
 
     if (!facilityId) return;
 
-    const existingCategories = (await apis.facility.resourceCategory.list(
-      facilityId,
-      {
-        limit: 100,
-        resource_type: ResourceCategoryResourceType.charge_item_definition,
-        resource_sub_type: ResourceCategorySubType.other,
-      },
-    )) as unknown as { results: ResourceCategoryRead[] };
-
-    const normalizedTitle = categoryTitle.trim().toLowerCase();
-    const existingCategory = existingCategories.results.find(
-      (category) => category.title.trim().toLowerCase() === normalizedTitle,
+    // Collect unique category titles from valid rows
+    const uniqueCategoryTitles = Array.from(
+      new Set(validRows.map((row) => row.data.category.trim())),
     );
 
-    let categorySlug = existingCategory?.slug_config.slug_value;
-
-    if (!categorySlug) {
-      categorySlug = await createSlug(categoryTitle);
-      await apis.facility.resourceCategory.create(facilityId, {
-        title: categoryTitle,
-        slug_value: categorySlug,
-        resource_type: ResourceCategoryResourceType.charge_item_definition,
-        resource_sub_type: ResourceCategorySubType.other,
-      });
-    }
-
-    const resourceCategorySlug = `f-${facilityId}-${categorySlug}`;
+    // Resolve or create categories using the shared utility
+    const categorySlugMap = await upsertResourceCategories({
+      facilityId,
+      categories: uniqueCategoryTitles,
+      resourceType: ResourceCategoryResourceType.charge_item_definition,
+      slugPrefix: "cid",
+    });
 
     for (const row of validRows) {
       try {
         const slug = row.data.slug_value.trim();
+        const normalizedCategory = row.data.category.trim().toLowerCase();
+        const resourceCategorySlug = categorySlugMap.get(normalizedCategory) ?? "";
 
         const payload: ChargeItemDefinitionCreate = {
           title: row.data.title,
@@ -330,54 +319,26 @@ Bed Charges,bed-charges,Per day bed charge,Bed usage,1500`;
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="mb-4">
-              <label className="text-sm font-medium text-gray-700">
-                Category Title
-              </label>
-              <input
-                value={categoryTitle}
-                onChange={(event) => setCategoryTitle(event.target.value)}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                placeholder="e.g. Consultation Charges"
-              />
-            </div>
-
-            <div
-              className={`border-2 border-dashed rounded-lg p-8 text-center ${
-                categoryTitle.trim()
-                  ? "border-gray-300"
-                  : "border-gray-200 bg-gray-50 opacity-60"
-              }`}
-            >
+            <div className="border-2 border-dashed rounded-lg p-8 text-center border-gray-300">
               <input
                 type="file"
                 accept=".csv"
                 onChange={handleFileUpload}
                 className="hidden"
                 id="charge-item-upload"
-                disabled={!categoryTitle.trim()}
               />
-              <label
-                htmlFor="charge-item-upload"
-                className={
-                  categoryTitle.trim() ? "cursor-pointer" : "cursor-not-allowed"
-                }
-              >
+              <label htmlFor="charge-item-upload" className="cursor-pointer">
                 <div className="flex flex-col items-center gap-4">
                   <Upload className="h-12 w-12 text-gray-400" />
                   <div>
                     <p className="text-lg font-medium">
-                      {categoryTitle.trim()
-                        ? "Click to upload CSV file"
-                        : "Enter a category title above to upload"}
+                      Click to upload CSV file
                     </p>
-                    {categoryTitle.trim() && (
-                      <p className="text-sm text-gray-500">or drag and drop</p>
-                    )}
+                    <p className="text-sm text-gray-500">or drag and drop</p>
                   </div>
                   <p className="text-xs text-gray-400">
                     Expected columns: title, slug_value, description, purpose,
-                    price
+                    price, category
                   </p>
                   <Button variant="outline" size="sm" onClick={downloadSample}>
                     Download Sample CSV
@@ -405,7 +366,7 @@ Bed Charges,bed-charges,Per day bed charge,Bed usage,1500`;
           <CardHeader>
             <CardTitle>Charge Item Import Wizard</CardTitle>
             <CardDescription>
-              Importing into category: <strong>{categoryTitle}</strong>
+              Review the parsed charge items before importing.
             </CardDescription>
             <div className="mt-4">
               <Progress value={100} className="h-2" />
@@ -424,6 +385,7 @@ Bed Charges,bed-charges,Per day bed charge,Bed usage,1500`;
                         <th className="px-4 py-2 text-left">Row</th>
                         <th className="px-4 py-2 text-left">Title</th>
                         <th className="px-4 py-2 text-left">Price</th>
+                        <th className="px-4 py-2 text-left">Category</th>
                         <th className="px-4 py-2 text-left">Status</th>
                       </tr>
                     </thead>
@@ -438,6 +400,7 @@ Bed Charges,bed-charges,Per day bed charge,Bed usage,1500`;
                           </td>
                           <td className="px-4 py-2">{row.data.title}</td>
                           <td className="px-4 py-2">{row.data.price}</td>
+                          <td className="px-4 py-2">{row.data.category}</td>
                           <td className="px-4 py-2">
                             {row.errors.length === 0 ? (
                               <span className="text-green-600">Valid</span>
